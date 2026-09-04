@@ -1,0 +1,12 @@
+{
+  "name": "blueprint-editor",
+  "version": "0.0.1",
+  "title": "Blueprint Editor",
+  "author": "mmaslich",
+  "description": "Edit a blueprint directly as data: add, remove, move and rotate entities/tiles without building them for real.",
+  "factorio_version": "2.0",
+  "dependencies": [
+    "base >= 2.0",
+    "? space-age"
+  ]
+}
