@@ -94,10 +94,10 @@ function M.teleport_out(player)
     return false
   end
 
+  player.teleport(session.pre_edit.position, pre_edit_surface)
   if session.pre_edit.character and session.pre_edit.character.valid then
     player.set_controller({ type = defines.controllers.character, character = session.pre_edit.character })
   end
-  player.teleport(session.pre_edit.position, pre_edit_surface)
   player.clear_cursor()
   state.clear_session(player.index)
   return true
