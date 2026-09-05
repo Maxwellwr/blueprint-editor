@@ -33,9 +33,6 @@ local function on_player_joined_game()
   end
 end
 
--- TODO(Phase 1 debug, remove before closeout): второй заход диагностики --
--- "второй чертёж рендерится пустым". Логирует cursor_stack, entity_count,
--- и позиции первых нескольких сущностей, чтобы понять расхождение с первым.
 local function on_toggle_editor(event)
   local player = game.get_player(event.player_index)
   local session = state.get_session(player.index)
@@ -43,37 +40,12 @@ local function on_toggle_editor(event)
     render.clear_session_renders(session)
     surface.teleport_out(player)
   else
-    local cs = player.cursor_stack
-    log(string.format(
-      "eb debug2: cursor label=%s entity_count=%s",
-      tostring(cs and cs.valid_for_read and cs.label),
-      tostring(cs and cs.valid_for_read and cs.is_blueprint and cs.get_blueprint_entity_count())
-    ))
-    local import_data = blueprint_io.import_from_stack(cs)
-    if import_data then
-      local n = 0
-      for internal_id, record in pairs(import_data.entities) do
-        n = n + 1
-        if n <= 5 then
-          log(string.format(
-            "eb debug2: entity[%d] name=%s position=%s direction=%s",
-            internal_id, record.raw.name, serpent.line(record.raw.position), tostring(record.raw.direction)
-          ))
-        end
-      end
-      log(string.format("eb debug2: total entities=%d canvas_offset will be region_offset(%d)", n, player.index))
-    else
-      log("eb debug2: import_data is nil")
-    end
+    local import_data = blueprint_io.import_from_stack(player.cursor_stack)
     if surface.teleport_in(player, import_data) then
       local new_session = state.get_session(player.index)
-      log(string.format("eb debug2: session.canvas_offset=%s", serpent.line(new_session.canvas_offset)))
       render.draw_grid(new_session)
       render.draw_entities(new_session)
       render.draw_tiles(new_session)
-      local rendered = 0
-      for _ in pairs(new_session.render_ids.entities) do rendered = rendered + 1 end
-      log(string.format("eb debug2: draw_entities stored %d ids", rendered))
     end
   end
 end
