@@ -32,10 +32,6 @@ local function on_player_joined_game()
   end
 end
 
--- TODO(Phase 1 debug, remove before closeout): временная диагностика бага
--- "нет ничего на канвасе кроме сетки" -- логирует состояние cursor_stack,
--- результат import_from_stack и итоговые render_ids, чтобы найти, где
--- рвётся цепочка import -> render.
 local function on_toggle_editor(event)
   local player = game.get_player(event.player_index)
   local session = state.get_session(player.index)
@@ -43,35 +39,14 @@ local function on_toggle_editor(event)
     render.clear_session_renders(session)
     surface.teleport_out(player)
   else
-    local cs = player.cursor_stack
-    log(string.format(
-      "eb debug: cursor_stack valid_for_read=%s is_blueprint=%s is_blueprint_setup=%s",
-      tostring(cs and cs.valid_for_read), tostring(cs and cs.valid_for_read and cs.is_blueprint),
-      tostring(cs and cs.valid_for_read and cs.is_blueprint and cs.is_blueprint_setup())
-    ))
-    local import_data = blueprint_io.import_from_stack(player, cs)
-    if import_data then
-      local entity_count, tile_count = 0, 0
-      for _ in pairs(import_data.entities) do entity_count = entity_count + 1 end
-      for _ in pairs(import_data.tiles) do tile_count = tile_count + 1 end
-      log(string.format("eb debug: import_data present, entities=%d, tiles=%d", entity_count, tile_count))
-    else
-      log("eb debug: import_data is nil (bare 'new' mode)")
-    end
+    local import_data = blueprint_io.import_from_stack(player, player.cursor_stack)
     if surface.teleport_in(player, import_data) then
       local new_session = state.get_session(player.index)
       render.draw_grid(new_session)
-      log(string.format("eb debug: draw_grid stored %d ids", #new_session.render_ids.grid))
       if import_data then
         render.draw_entities(new_session)
         render.draw_tiles(new_session)
-        local rendered_entities, rendered_tiles = 0, 0
-        for _ in pairs(new_session.render_ids.entities) do rendered_entities = rendered_entities + 1 end
-        for _ in pairs(new_session.render_ids.tiles) do rendered_tiles = rendered_tiles + 1 end
-        log(string.format("eb debug: draw_entities stored %d ids, draw_tiles stored %d ids", rendered_entities, rendered_tiles))
       end
-    else
-      log("eb debug: surface.teleport_in returned false")
     end
   end
 end
