@@ -42,3 +42,38 @@ describe("blueprint_io.build_import_data", function()
     assert.are.equal(bp_entity, entities[1].raw)
   end)
 end)
+
+describe("blueprint_io.compute_bounding_box_center", function()
+  it("returns {0, 0} for an empty blueprint", function()
+    local center = blueprint_io.compute_bounding_box_center({}, {})
+    assert.are.same({ x = 0, y = 0 }, center)
+  end)
+
+  it("returns the single entity's own position when there is only one", function()
+    local entities = { [1] = { raw = { position = { x = 5, y = -3 } } } }
+    local center = blueprint_io.compute_bounding_box_center(entities, {})
+    assert.are.same({ x = 5, y = -3 }, center)
+  end)
+
+  it("returns the midpoint of the bounding box across entities and tiles", function()
+    local entities = {
+      [1] = { raw = { position = { x = -10, y = 0 } } },
+      [2] = { raw = { position = { x = 10, y = 4 } } },
+    }
+    local tiles = {
+      ["0,-6"] = { raw = { position = { x = 0, y = -6 } } },
+    }
+    local center = blueprint_io.compute_bounding_box_center(entities, tiles)
+    assert.are.same({ x = 0, y = -1 }, center)
+  end)
+
+  it("handles a real far-from-origin blueprint like the one that surfaced this bug", function()
+    local entities = {
+      [1] = { raw = { position = { x = 3, y = -142.5 } } },
+      [2] = { raw = { position = { x = 2.5, y = -143.5 } } },
+      [3] = { raw = { position = { x = 5, y = -142.5 } } },
+    }
+    local center = blueprint_io.compute_bounding_box_center(entities, {})
+    assert.are.same({ x = 3.75, y = -143 }, center)
+  end)
+end)

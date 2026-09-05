@@ -22,6 +22,33 @@ function M.build_import_data(bp_entities, bp_tiles)
   return entities, tiles, next_internal_id
 end
 
+-- Чистая логика без Factorio API: центр bounding box всех сущностей и тайлов
+-- (в локальных координатах самого blueprint'а). Нужен, чтобы отрисовать
+-- содержимое чертежа так, чтобы его центр совпадал с точкой, куда
+-- телепортируется игрок -- позиции BlueprintEntity/Tile сохраняют координаты
+-- реального мира на момент захвата, а не нормализованы к (0,0) (найдено
+-- playtest'ом: чертёж, захваченный далеко от спавна, рендерился за пределами
+-- видимой области). {0, 0} для пустого чертежа ("new"-режим).
+function M.compute_bounding_box_center(entities, tiles)
+  local min_x, min_y, max_x, max_y = nil, nil, nil, nil
+  local function consider(position)
+    if min_x == nil or position.x < min_x then min_x = position.x end
+    if max_x == nil or position.x > max_x then max_x = position.x end
+    if min_y == nil or position.y < min_y then min_y = position.y end
+    if max_y == nil or position.y > max_y then max_y = position.y end
+  end
+  for _, record in pairs(entities) do
+    consider(record.raw.position)
+  end
+  for _, record in pairs(tiles) do
+    consider(record.raw.position)
+  end
+  if min_x == nil then
+    return { x = 0, y = 0 }
+  end
+  return { x = (min_x + max_x) / 2, y = (min_y + max_y) / 2 }
+end
+
 -- API-факт (проверено lua-api.factorio.com перед написанием кода): свойство
 -- называется `preview_icons`, а не `blueprint_icons` (последнее нигде не
 -- существует в текущей версии API -- расхождение с формулировкой ADR-0001
@@ -34,11 +61,13 @@ function M.import_from_stack(cursor_stack)
   local bp_entities = cursor_stack.get_blueprint_entities() or {}
   local bp_tiles = cursor_stack.get_blueprint_tiles() or {}
   local entities, tiles, next_internal_id = M.build_import_data(bp_entities, bp_tiles)
+  local blueprint_center = M.compute_bounding_box_center(entities, tiles)
 
   return {
     entities = entities,
     tiles = tiles,
     next_internal_id = next_internal_id,
+    blueprint_center = blueprint_center,
     label = cursor_stack.label,
     icons = cursor_stack.preview_icons,
     blueprint_snap = {

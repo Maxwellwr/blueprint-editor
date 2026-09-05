@@ -57,6 +57,7 @@ function M.draw_entities(session)
     ))
   end
 
+  local center = session.blueprint_center
   for internal_id, record in pairs(session.entities) do
     local raw = record.raw
     local orientation = 0
@@ -71,7 +72,7 @@ function M.draw_entities(session)
     end
     session.render_ids.entities[internal_id] = rendering.draw_sprite{
       sprite = sprite,
-      target = { offset.x + raw.position.x, offset.y + raw.position.y },
+      target = { offset.x + raw.position.x - center.x, offset.y + raw.position.y - center.y },
       orientation = orientation,
       surface = surface,
       players = { session.player_index },
@@ -82,6 +83,7 @@ end
 function M.draw_tiles(session)
   local surface = canvas_surface()
   local offset = session.canvas_offset
+  local center = session.blueprint_center
   for key, record in pairs(session.tiles) do
     local raw = record.raw
     local sprite = "tile/" .. raw.name
@@ -91,7 +93,7 @@ function M.draw_tiles(session)
     end
     session.render_ids.tiles[key] = rendering.draw_sprite{
       sprite = sprite,
-      target = { offset.x + raw.position.x + 0.5, offset.y + raw.position.y + 0.5 },
+      target = { offset.x + raw.position.x - center.x + 0.5, offset.y + raw.position.y - center.y + 0.5 },
       surface = surface,
       players = { session.player_index },
     }

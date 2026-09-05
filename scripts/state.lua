@@ -46,6 +46,7 @@ function M.start_session(player_index, pre_edit, canvas_offset, import_data)
     next_internal_id = (import_data and import_data.next_internal_id) or 1,
     entities = (import_data and import_data.entities) or {},
     tiles = (import_data and import_data.tiles) or {},
+    blueprint_center = (import_data and import_data.blueprint_center) or { x = 0, y = 0 },
     render_ids = M.new_render_ids(),
     label = import_data and import_data.label or nil,
     icons = import_data and import_data.icons or nil,
