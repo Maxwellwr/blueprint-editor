@@ -53,11 +53,20 @@ function M.teleport_in(player, import_data)
     surface_name = player.surface.name,
     position = player.position,
     controller_type = player.controller_type,
+    character = player.character,
   }
   local canvas_offset = region_offset(player.index)
   local canvas_surface = M.ensure_canvas_surface()
 
+  -- God-режим (ADR "sandbox"-стиль облёта, docs/phases/phase-1-plan.md) --
+  -- переключаем ДО телепортации, чтобы персонаж остался в реальном мире,
+  -- а не переехал на канвас перед отсоединением.
+  player.set_controller({ type = defines.controllers.god })
+
   if not player.teleport(canvas_offset, canvas_surface) then
+    if pre_edit.character and pre_edit.character.valid then
+      player.set_controller({ type = defines.controllers.character, character = pre_edit.character })
+    end
     return false
   end
 
@@ -85,6 +94,9 @@ function M.teleport_out(player)
     return false
   end
 
+  if session.pre_edit.character and session.pre_edit.character.valid then
+    player.set_controller({ type = defines.controllers.character, character = session.pre_edit.character })
+  end
   player.teleport(session.pre_edit.position, pre_edit_surface)
   player.clear_cursor()
   state.clear_session(player.index)
