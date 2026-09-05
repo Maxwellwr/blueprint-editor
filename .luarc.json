@@ -14,6 +14,7 @@
     "commands",
     "mods",
     "log",
+    "helpers",
     "localised_print",
     "serpent",
     "table_size",
