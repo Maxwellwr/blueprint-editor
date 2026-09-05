@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime.version": "Lua 5.2",
+  "diagnostics.globals": [
+    "data",
+    "defines",
+    "game",
+    "script",
+    "storage",
+    "settings",
+    "remote",
+    "rcon",
+    "rendering",
+    "commands",
+    "mods",
+    "log",
+    "localised_print",
+    "serpent",
+    "table_size"
+  ]
+}
