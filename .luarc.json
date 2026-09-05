@@ -16,6 +16,24 @@
     "log",
     "localised_print",
     "serpent",
-    "table_size"
+    "table_size",
+    "describe",
+    "it",
+    "before_each",
+    "after_each",
+    "setup",
+    "teardown",
+    "context",
+    "pending",
+    "finally",
+    "assert",
+    "spy",
+    "mock",
+    "stub",
+    "randomize",
+    "lazy_setup",
+    "lazy_teardown",
+    "strict_setup",
+    "strict_teardown"
   ]
 }
