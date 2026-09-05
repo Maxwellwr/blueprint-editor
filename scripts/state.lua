@@ -2,7 +2,7 @@ local M = {}
 
 local function default_storage()
   return {
-    mod_version = "0.0.1",
+    mod_version = script.active_mods["blueprint-editor"],
     canvas_surface_name = "eb-canvas",
     sessions = {},
   }
@@ -18,6 +18,14 @@ end
 
 function M.canvas_surface_name()
   return storage.canvas_surface_name
+end
+
+function M.get_mod_version()
+  return storage.mod_version
+end
+
+function M.set_mod_version(version)
+  storage.mod_version = version
 end
 
 function M.get_session(player_index)

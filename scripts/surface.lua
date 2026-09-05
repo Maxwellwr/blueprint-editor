@@ -1,5 +1,7 @@
 local state = require("scripts.state")
 
+-- > 1000 tiles apart (ADR-0001 §5) so two players' canvas regions never
+-- visually overlap regardless of blueprint size.
 local REGION_SPACING = 1024
 
 local M = {}
@@ -11,6 +13,9 @@ function M.ensure_canvas_surface()
     return surface
   end
 
+  -- width/height only bound the initial chunk the map generator fills before
+  -- generate_with_lab_tiles (set below) takes over; every chunk actually
+  -- visited on this surface is lab tiles regardless of this value.
   surface = game.create_surface(name, {
     width = 2,
     height = 2,
@@ -39,6 +44,10 @@ function M.teleport_in(player)
     player.print({"", "Blueprint Editor: exit your vehicle / remote view first."})
     return false
   end
+  if not player.cursor_stack then
+    player.print({"", "Blueprint Editor: cannot enter the editor from this controller."})
+    return false
+  end
 
   local pre_edit = {
     surface_name = player.surface.name,
@@ -48,10 +57,17 @@ function M.teleport_in(player)
   local canvas_offset = region_offset(player.index)
   local canvas_surface = M.ensure_canvas_surface()
 
+  if not player.teleport(canvas_offset, canvas_surface) then
+    return false
+  end
+
+  if player.clear_cursor() then
+    player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
+  else
+    player.print({"", "Blueprint Editor: could not equip the cursor tool (cursor full) -- entered editor without it."})
+  end
+
   state.start_session(player.index, pre_edit, canvas_offset)
-  player.teleport(canvas_offset, canvas_surface)
-  player.clear_cursor()
-  player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
   return true
 end
 
@@ -60,7 +76,13 @@ function M.teleport_out(player)
   if not session then
     return false
   end
-  player.teleport(session.pre_edit.position, session.pre_edit.surface_name)
+  local pre_edit_surface = game.surfaces[session.pre_edit.surface_name]
+  if not pre_edit_surface then
+    state.clear_session(player.index)
+    return false
+  end
+
+  player.teleport(session.pre_edit.position, pre_edit_surface)
   player.clear_cursor()
   state.clear_session(player.index)
   return true

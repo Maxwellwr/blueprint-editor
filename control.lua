@@ -21,11 +21,12 @@ local function on_load()
   -- уже доступен и запись в `storage` разрешена.
 end
 
-local function on_player_joined_game(event)
-  local player = game.get_player(event.player_index)
-  local session = state.get_session(player.index)
-  if session and player.surface.name ~= state.canvas_surface_name() then
-    state.clear_session(player.index)
+local function on_player_joined_game()
+  for player_index in state.each_session() do
+    local player = game.get_player(player_index)
+    if not player or player.surface.name ~= state.canvas_surface_name() then
+      state.clear_session(player_index)
+    end
   end
 end
 
@@ -40,8 +41,9 @@ end
 
 -- Спайк: подтвердить, что plain click (без drag) с equipped selection-tool
 -- всё ещё стреляет on_player_selected_area с маленькой area (ADR-0001 §5,
--- §2 "Unverified"). Временный лог, результат фиксируется в
--- docs/phases/phase-0-implementation.md; полноценная обработка -- input.lua, Phase 2.
+-- §2 "Unverified"). Временный лог, результат зафиксирован как подтверждённый
+-- факт в docs/phases/phase-0-implementation.md.
+-- TODO(Phase 2): удалить этот хендлер, заменить полноценной обработкой в input.lua.
 local function on_selected_area(event)
   if event.item == "eb-cursor-tool" then
     log(string.format(
