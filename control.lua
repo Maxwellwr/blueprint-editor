@@ -1,6 +1,8 @@
 local state = require("scripts.state")
 local migrations = require("scripts.migrations")
 local surface = require("scripts.surface")
+local blueprint_io = require("scripts.blueprint_io")
+local render = require("scripts.rendering")
 
 local function on_init()
   state.init()
@@ -32,10 +34,20 @@ end
 
 local function on_toggle_editor(event)
   local player = game.get_player(event.player_index)
-  if state.get_session(player.index) then
+  local session = state.get_session(player.index)
+  if session then
+    render.clear_session_renders(session)
     surface.teleport_out(player)
   else
-    surface.teleport_in(player)
+    local import_data = blueprint_io.import_from_stack(player, player.cursor_stack)
+    if surface.teleport_in(player, import_data) then
+      local new_session = state.get_session(player.index)
+      render.draw_grid(new_session)
+      if import_data then
+        render.draw_entities(new_session)
+        render.draw_tiles(new_session)
+      end
+    end
   end
 end
 
