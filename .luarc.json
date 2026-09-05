@@ -35,5 +35,8 @@
     "lazy_teardown",
     "strict_setup",
     "strict_teardown"
+  ],
+  "diagnostics.disable": [
+    "undefined-field"
   ]
 }
