@@ -61,6 +61,7 @@ function M.teleport_out(player)
     return false
   end
   player.teleport(session.pre_edit.position, session.pre_edit.surface_name)
+  player.clear_cursor()
   state.clear_session(player.index)
   return true
 end

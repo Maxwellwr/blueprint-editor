@@ -14,14 +14,18 @@ local function on_configuration_changed()
 end
 
 local function on_load()
-  -- Сессии не переживают save/reload осмысленно (ADR-0001 §4, "Known MVP
-  -- limitation"): если игрок сохранённой сессии сейчас не на канвас-поверхности,
-  -- считаем редактор отменённым и выкидываем сессию, а не пытаемся её восстановить.
-  for player_index in state.each_session() do
-    local player = game.get_player(player_index)
-    if not player or player.surface.name ~= state.canvas_surface_name() then
-      state.clear_session(player_index)
-    end
+  -- Пусто намеренно: `game` недоступен внутри on_load, а запись в `storage`
+  -- запрещена (lua-api.factorio.com/latest/auxiliary/data-lifecycle.html).
+  -- Очистка осиротевших сессий (ADR-0001 §4, "Known MVP limitation") перенесена
+  -- в on_player_joined_game, который срабатывает после on_load, когда `game`
+  -- уже доступен и запись в `storage` разрешена.
+end
+
+local function on_player_joined_game(event)
+  local player = game.get_player(event.player_index)
+  local session = state.get_session(player.index)
+  if session and player.surface.name ~= state.canvas_surface_name() then
+    state.clear_session(player.index)
   end
 end
 
@@ -50,5 +54,6 @@ end
 script.on_init(on_init)
 script.on_configuration_changed(on_configuration_changed)
 script.on_load(on_load)
+script.on_event(defines.events.on_player_joined_game, on_player_joined_game)
 script.on_event("eb-toggle-editor", on_toggle_editor)
 script.on_event(defines.events.on_player_selected_area, on_selected_area)
