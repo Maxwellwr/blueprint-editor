@@ -58,10 +58,16 @@ function M.teleport_in(player, import_data)
   local canvas_offset = region_offset(player.index)
   local canvas_surface = M.ensure_canvas_surface()
 
-  -- God-режим (ADR "sandbox"-стиль облёта, docs/phases/phase-1-plan.md) --
-  -- переключаем ДО телепортации, чтобы персонаж остался в реальном мире,
-  -- а не переехал на канвас перед отсоединением.
-  player.set_controller({ type = defines.controllers.god })
+  -- God-режим -- playtest-фикс (не было в исходном docs/phases/phase-1-plan.md,
+  -- зафиксировано как отклонение от ADR-0001 §5 "restore exactly" в
+  -- docs/phases/phase-1-implementation.md): свободный облёт вместо коллизий
+  -- персонажа. Переключаем ДО телепортации, чтобы персонаж остался в реальном
+  -- мире, а не переехал на канвас перед отсоединением. Только если вход идёт
+  -- из обычного character-контроллера -- иначе нечего сохранять/восстанавливать,
+  -- телепортируем как есть в текущем контроллере.
+  if pre_edit.character then
+    player.set_controller({ type = defines.controllers.god })
+  end
 
   if not player.teleport(canvas_offset, canvas_surface) then
     if pre_edit.character and pre_edit.character.valid then
@@ -95,10 +101,23 @@ function M.teleport_out(player)
   end
 
   player.teleport(session.pre_edit.position, pre_edit_surface)
-  if session.pre_edit.character and session.pre_edit.character.valid then
-    player.set_controller({ type = defines.controllers.character, character = session.pre_edit.character })
+
+  local character = session.pre_edit.character
+  if character then
+    if character.valid and character.surface == pre_edit_surface then
+      player.set_controller({ type = defines.controllers.character, character = character })
+    else
+      player.print({"", "Blueprint Editor: could not restore your character -- it may have been destroyed or moved while you were in the editor."})
+    end
   end
-  player.clear_cursor()
+
+  -- Чистим только свой инструмент ("new"-режим); blueprint игрока (edit-режим)
+  -- никогда не трогаем -- фаза read-only, курсор не наш (docs/phases/phase-1-plan.md, Задача 2).
+  local cursor_stack = player.cursor_stack
+  if cursor_stack and cursor_stack.valid_for_read and cursor_stack.name == "eb-cursor-tool" then
+    cursor_stack.clear()
+  end
+
   state.clear_session(player.index)
   return true
 end

@@ -15,7 +15,7 @@ function M.build_import_data(bp_entities, bp_tiles)
 
   local tiles = {}
   for _, bp_tile in ipairs(bp_tiles) do
-    local key = bp_tile.position.x .. "," .. bp_tile.position.y
+    local key = string.format("%d,%d", bp_tile.position.x, bp_tile.position.y)
     tiles[key] = { raw = bp_tile }
   end
 
@@ -26,7 +26,7 @@ end
 -- называется `preview_icons`, а не `blueprint_icons` (последнее нигде не
 -- существует в текущей версии API -- расхождение с формулировкой ADR-0001
 -- §8(b).2, зафиксировано как найденный факт в phase-1-implementation.md).
-function M.import_from_stack(player, cursor_stack)
+function M.import_from_stack(cursor_stack)
   if not (cursor_stack and cursor_stack.valid_for_read and cursor_stack.is_blueprint and cursor_stack.is_blueprint_setup()) then
     return nil
   end

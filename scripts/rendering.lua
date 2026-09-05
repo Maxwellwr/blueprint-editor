@@ -13,8 +13,12 @@ local ENTITY_RENDER_WARN_THRESHOLD = 2000
 
 local M = {}
 
+local function canvas_surface()
+  return game.surfaces[state.canvas_surface_name()]
+end
+
 function M.draw_grid(session)
-  local surface = game.surfaces[state.canvas_surface_name()]
+  local surface = canvas_surface()
   local offset = session.canvas_offset
   local ids = {}
   for i = -GRID_HALF_SIZE, GRID_HALF_SIZE do
@@ -39,7 +43,7 @@ function M.draw_grid(session)
 end
 
 function M.draw_entities(session)
-  local surface = game.surfaces[state.canvas_surface_name()]
+  local surface = canvas_surface()
   local offset = session.canvas_offset
 
   local count = 0
@@ -60,8 +64,13 @@ function M.draw_entities(session)
       -- Factorio 2.0: direction в 1/16 оборота; orientation LuaRendering -- доля оборота (0..1).
       orientation = raw.direction / 16
     end
+    local sprite = "entity/" .. raw.name
+    if not helpers.is_valid_sprite_path(sprite) then
+      log(string.format("Blueprint Editor: no sprite for entity '%s' (mod not installed?) -- using placeholder icon.", raw.name))
+      sprite = "utility/missing_icon"
+    end
     session.render_ids.entities[internal_id] = rendering.draw_sprite{
-      sprite = "entity/" .. raw.name,
+      sprite = sprite,
       target = { offset.x + raw.position.x, offset.y + raw.position.y },
       orientation = orientation,
       surface = surface,
@@ -71,12 +80,17 @@ function M.draw_entities(session)
 end
 
 function M.draw_tiles(session)
-  local surface = game.surfaces[state.canvas_surface_name()]
+  local surface = canvas_surface()
   local offset = session.canvas_offset
   for key, record in pairs(session.tiles) do
     local raw = record.raw
+    local sprite = "tile/" .. raw.name
+    if not helpers.is_valid_sprite_path(sprite) then
+      log(string.format("Blueprint Editor: no sprite for tile '%s' (mod not installed?) -- using placeholder icon.", raw.name))
+      sprite = "utility/missing_icon"
+    end
     session.render_ids.tiles[key] = rendering.draw_sprite{
-      sprite = "tile/" .. raw.name,
+      sprite = sprite,
       target = { offset.x + raw.position.x + 0.5, offset.y + raw.position.y + 0.5 },
       surface = surface,
       players = { session.player_index },
@@ -99,7 +113,7 @@ function M.clear_session_renders(session)
   destroy_ids(session.render_ids.grid)
   destroy_ids(session.render_ids.entities)
   destroy_ids(session.render_ids.tiles)
-  session.render_ids = { grid = nil, entities = {}, tiles = {} }
+  session.render_ids = state.new_render_ids()
 end
 
 return M

@@ -24,9 +24,10 @@ local function on_load()
 end
 
 local function on_player_joined_game()
-  for player_index in state.each_session() do
+  for player_index, session in state.each_session() do
     local player = game.get_player(player_index)
     if not player or player.surface.name ~= state.canvas_surface_name() then
+      render.clear_session_renders(session)
       state.clear_session(player_index)
     end
   end
@@ -39,14 +40,12 @@ local function on_toggle_editor(event)
     render.clear_session_renders(session)
     surface.teleport_out(player)
   else
-    local import_data = blueprint_io.import_from_stack(player, player.cursor_stack)
+    local import_data = blueprint_io.import_from_stack(player.cursor_stack)
     if surface.teleport_in(player, import_data) then
       local new_session = state.get_session(player.index)
       render.draw_grid(new_session)
-      if import_data then
-        render.draw_entities(new_session)
-        render.draw_tiles(new_session)
-      end
+      render.draw_entities(new_session)
+      render.draw_tiles(new_session)
     end
   end
 end

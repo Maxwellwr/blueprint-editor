@@ -32,6 +32,10 @@ function M.get_session(player_index)
   return storage.sessions[player_index]
 end
 
+function M.new_render_ids()
+  return { grid = nil, entities = {}, tiles = {} }
+end
+
 function M.start_session(player_index, pre_edit, canvas_offset, import_data)
   local session = {
     player_index = player_index,
@@ -42,7 +46,7 @@ function M.start_session(player_index, pre_edit, canvas_offset, import_data)
     next_internal_id = (import_data and import_data.next_internal_id) or 1,
     entities = (import_data and import_data.entities) or {},
     tiles = (import_data and import_data.tiles) or {},
-    render_ids = { grid = nil, entities = {}, tiles = {} },
+    render_ids = M.new_render_ids(),
     label = import_data and import_data.label or nil,
     icons = import_data and import_data.icons or nil,
     blueprint_snap = import_data and import_data.blueprint_snap or nil,

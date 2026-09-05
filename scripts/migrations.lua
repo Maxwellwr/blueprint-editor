@@ -15,7 +15,7 @@ M.steps = {
         session.next_internal_id = session.next_internal_id or 1
         session.entities = session.entities or {}
         session.tiles = session.tiles or {}
-        session.render_ids = session.render_ids or { grid = nil, entities = {}, tiles = {} }
+        session.render_ids = session.render_ids or state.new_render_ids()
       end
     end,
   },
@@ -46,7 +46,7 @@ function M.run()
       current = step.version
     end
   end
-  state.set_mod_version(current)
+  state.set_mod_version(script.active_mods["blueprint-editor"])
 end
 
 return M
