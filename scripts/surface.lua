@@ -36,7 +36,7 @@ local function region_offset(player_index)
   return { x = player_index * REGION_SPACING, y = 0 }
 end
 
-function M.teleport_in(player)
+function M.teleport_in(player, import_data)
   if state.get_session(player.index) then
     return false
   end
@@ -61,13 +61,16 @@ function M.teleport_in(player)
     return false
   end
 
-  if player.clear_cursor() then
+  if import_data then
+    -- Blueprint остаётся у игрока в руке нетронутым -- Phase 1 только читает
+    -- его данные, ничего не перекладывает (см. phase-1-plan.md, Задача 2).
+  elseif player.clear_cursor() then
     player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
   else
     player.print({"", "Blueprint Editor: could not equip the cursor tool (cursor full) -- entered editor without it."})
   end
 
-  state.start_session(player.index, pre_edit, canvas_offset)
+  state.start_session(player.index, pre_edit, canvas_offset, import_data)
   return true
 end
 
