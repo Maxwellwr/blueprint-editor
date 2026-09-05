@@ -88,9 +88,9 @@ local function destroy_ids(ids)
   if not ids then
     return
   end
-  for _, id in pairs(ids) do
-    if rendering.is_valid(id) then
-      rendering.destroy(id)
+  for _, render_object in pairs(ids) do
+    if render_object.valid then
+      render_object:destroy()
     end
   end
 end
