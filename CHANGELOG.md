@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-06
+
+Phase 1 — Read-only render of an existing blueprint.
+
+### Добавлено
+
+- `scripts/blueprint_io.lua` — `import_from_stack` (read-only импорт blueprint'а из курсора игрока), `build_import_data`/`compute_bounding_box_center` (чистая логика, покрыта TDD).
+- `scripts/rendering.lua` — `draw_grid`/`draw_entities`/`draw_tiles`/`clear_session_renders` (иконки-спрайты с фолбэком для неустановленных модов).
+- `scripts/state.lua` — расширенная схема `Session` (`entities`, `tiles`, `blueprint_center`, `render_ids`, ...), миграция `0.2.0`.
+- Свободный облёт (`defines.controllers.god`) внутри редактора вместо коллизий обычного персонажа.
+- Первая тестовая инфраструктура репозитория: `busted`, `.busted`, `spec/blueprint_io_spec.lua` (8/8 тестов).
+
+### Подтверждено (спайк)
+
+- Перенос blueprint'а из игровой Blueprint Library через `cursor_stack` **не работает** (`valid_for_read = false`) — подтверждённый ADR-0001 риск, задокументирован как известное ограничение MVP (воркэраунд: сначала перетащить в инвентарь/книгу).
+
+См. [`docs/phases/phase-1-implementation.md`](docs/phases/phase-1-implementation.md) для полного списка решений, найденных фактов и известных ограничений.
+
 ## [0.1.0] — 2026-09-05
 
 Phase 0 — Scaffold + empty canvas surface.
