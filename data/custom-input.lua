@@ -2,7 +2,7 @@ data:extend({
   {
     type = "custom-input",
     name = "eb-toggle-editor",
-    key_sequence = "CONTROL + SHIFT + B",
+    key_sequence = "CONTROL + SHIFT + E",
     consuming = "none",
   },
 })
