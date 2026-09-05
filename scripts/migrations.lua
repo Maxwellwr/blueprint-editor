@@ -6,7 +6,20 @@ local M = {}
 -- если storage.mod_version меньше version шага. Пуст в Phase 0 -- мигрировать
 -- ещё не от чего. Новые шаги только добавляются в конец, старые не переписываются
 -- и не удаляются (docs/sdlc.md, "Миграции только аддитивные").
-M.steps = {}
+M.steps = {
+  {
+    version = "0.2.0",
+    fn = function()
+      for _, session in state.each_session() do
+        session.mode = session.mode or "new"
+        session.next_internal_id = session.next_internal_id or 1
+        session.entities = session.entities or {}
+        session.tiles = session.tiles or {}
+        session.render_ids = session.render_ids or { grid = nil, entities = {}, tiles = {} }
+      end
+    end,
+  },
+}
 
 local function parse_version(version)
   local major, minor, patch = version:match("^(%d+)%.(%d+)%.(%d+)$")
