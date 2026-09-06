@@ -1,6 +1,6 @@
 {
   "name": "blueprint-editor",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "title": "Blueprint Editor",
   "author": "mmaslich",
   "description": "Edit a blueprint directly as data: add, remove, move and rotate entities/tiles without building them for real.",
