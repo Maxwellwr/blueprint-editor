@@ -89,8 +89,19 @@ function M.teleport_in(player, import_data)
   if import_data then
     if import_data.origin.kind == "cursor" then
       local pinned = game.create_inventory(1)
-      player.cursor_stack.swap_stack(pinned[1])
-      import_data.origin = { kind = "pinned_stack", inventory = pinned }
+      local swapped = player.cursor_stack.swap_stack(pinned[1])
+      log(string.format("eb debug3: pin swap_stack=%s cursor_stack_name=%s pinned_stack_name=%s",
+        tostring(swapped), tostring(player.cursor_stack and player.cursor_stack.valid_for_read and player.cursor_stack.name),
+        tostring(pinned[1].valid_for_read and pinned[1].name)))
+      if swapped then
+        import_data.origin = { kind = "pinned_stack", inventory = pinned }
+      else
+        -- swap_stack не сработал (не подтверждено документацией, для каких
+        -- стеков это возможно) -- НЕ уничтожаем pinned (он всё равно пуст,
+        -- раз обмен не удался), оставляем blueprint как есть в руке игрока.
+        pinned.destroy()
+        player.print({"", "Blueprint Editor: could not free up your cursor -- entered editor with the blueprint still in hand."})
+      end
     elseif import_data.origin.kind == "cursor_record" then
       player.clear_cursor()
     end
@@ -128,14 +139,23 @@ function M.teleport_out(player)
 
   local origin = session.origin
   if origin and origin.kind == "pinned_stack" then
-    if player.cursor_stack then
-      player.cursor_stack.swap_stack(origin.inventory[1])
-    else
-      -- Редкий крайний случай (игрок стал spectator и т.п.) -- не теряем
-      -- blueprint молча, роняем на землю рядом.
-      player.surface.spill_item_stack{ position = player.position, stack = origin.inventory[1], enable_looted = true }
+    local pinned_stack = origin.inventory[1]
+    local swapped = player.cursor_stack and player.cursor_stack.swap_stack(pinned_stack)
+    log(string.format("eb debug3: restore swap_stack=%s pinned_still_has=%s",
+      tostring(swapped), tostring(pinned_stack.valid_for_read and pinned_stack.name)))
+    if pinned_stack.valid_for_read then
+      -- swap_stack не сработал или курсор недоступен -- роняем на землю,
+      -- не теряем содержимое молча.
+      player.surface.spill_item_stack{ position = player.position, stack = pinned_stack, enable_looted = true }
     end
-    origin.inventory.destroy()
+    if pinned_stack.valid_for_read then
+      -- Даже spill не сработал (не должно случаться) -- НЕ уничтожаем
+      -- инвентарь, чтобы не потерять blueprint; сообщаем и оставляем
+      -- как известную проблему для разбора по логу.
+      player.print({"", "Blueprint Editor: could not return your blueprint -- it is safely held, please report this bug."})
+    else
+      origin.inventory.destroy()
+    end
   elseif origin and origin.kind == "cursor_record" then
     player.print({"", "Blueprint Editor: your Blueprint Library blueprint stayed in the library -- select it again if you need it in hand."})
   else
