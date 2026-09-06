@@ -149,7 +149,6 @@ function M.clear_tile_render(session, key)
   local render_object = session.render_ids.tiles[key]
   if render_object and render_object.valid then
     render_object:destroy()
-    log(string.format("eb playtest: cleared previous tile render for key=%s", key))
   end
   session.render_ids.tiles[key] = nil
 end

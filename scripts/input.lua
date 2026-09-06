@@ -92,11 +92,9 @@ local function remove_at(player_index, position)
   if kind == "entity" then
     render.clear_entity_render(session, target)
     canvas.remove_entity(session, target)
-    log(string.format("eb playtest: removed entity id=%s", tostring(target)))
   else
     render.clear_tile_render(session, target)
     canvas.remove_tile(session, target)
-    log(string.format("eb playtest: removed tile key=%s", tostring(target)))
   end
 end
 
@@ -131,14 +129,12 @@ function M.on_player_selected_area(event)
     end
     local internal_id = canvas.place_entity(session, selected.name, world_position, 0)
     render.draw_entity(session, internal_id)
-    log(string.format("eb playtest: placed entity '%s' id=%d at (%.2f,%.2f)", selected.name, internal_id, world_position.x, world_position.y))
   else
     -- Тайлы перезаписываются без occupied-guard (см. phase-3-plan.md
     -- "Область фазы") -- place_tile и draw_tile сами корректно обрабатывают
     -- уже занятую клетку.
     local key = canvas.place_tile(session, selected.name, world_position)
     render.draw_tile(session, key)
-    log(string.format("eb playtest: placed tile '%s' key=%s at (%.2f,%.2f)", selected.name, key, world_position.x, world_position.y))
   end
 end
 
@@ -182,7 +178,6 @@ function M.on_pick_entity(event)
   end
   session.selected_palette_item = { kind = kind, name = name }
   game.get_player(event.player_index).print({"", "Blueprint Editor: selected " .. name})
-  log(string.format("eb playtest: picked %s '%s'", kind, name))
 end
 
 local function cycle_palette(event, delta)
@@ -198,7 +193,6 @@ local function cycle_palette(event, delta)
     if is_placeable(candidate) then
       session.selected_palette_item = candidate
       player.print({"", "Blueprint Editor: selected " .. candidate.name})
-      log(string.format("eb playtest: palette cycled to %s '%s'", candidate.kind, candidate.name))
       return
     end
   end
