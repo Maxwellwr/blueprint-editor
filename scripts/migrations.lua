@@ -30,6 +30,16 @@ M.steps = {
       end
     end,
   },
+  {
+    version = "0.4.0",
+    fn = function()
+      for _, session in state.each_session() do
+        if type(session.selected_palette_item) == "string" then
+          session.selected_palette_item = { kind = "entity", name = session.selected_palette_item }
+        end
+      end
+    end,
+  },
 }
 
 local function parse_version(version)
