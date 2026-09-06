@@ -69,3 +69,24 @@ describe("canvas.remove_wire_references", function()
     assert.are.same({}, entities[1].wires)
   end)
 end)
+
+describe("canvas.to_local_position", function()
+  -- assert.near (not assert.are.same) is intentional here: 1026.3 has no
+  -- exact IEEE-754 double representation, so world_position.x - offset.x
+  -- lands a few ULPs off the literal 2.3/6.05 regardless of a correct
+  -- implementation -- exact table equality on these fixtures is not
+  -- achievable and is not a signal of a bug.
+  it("round-trips world position back to raw.position space for a centered (new-mode) session", function()
+    local session = { canvas_offset = { x = 1024, y = 0 }, blueprint_center = { x = 0, y = 0 } }
+    local result = canvas.to_local_position(session, { x = 1026.3, y = 2.1 })
+    assert.near(2.3, result.x, 0.0001)
+    assert.near(2.1, result.y, 0.0001)
+  end)
+
+  it("accounts for a non-zero blueprint_center (edit-mode session)", function()
+    local session = { canvas_offset = { x = 1024, y = 0 }, blueprint_center = { x = 3.75, y = -143 } }
+    local result = canvas.to_local_position(session, { x = 1026.3, y = 2.1 })
+    assert.near(6.05, result.x, 0.0001)
+    assert.near(-140.9, result.y, 0.0001)
+  end)
+end)

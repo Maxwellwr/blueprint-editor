@@ -51,18 +51,19 @@ end
 -- Только для свежеразмещённых сущностей строится новый минимальный raw
 -- (preserve-unknown-fields, ADR-0001 §6) -- импортированные сущности этой
 -- функцией не создаются.
-function M.place_entity(session, name, position, direction)
+function M.place_entity(session, name, world_position, direction)
   local prototype = prototypes.entity[name]
   if not prototype then
     error(string.format("Blueprint Editor: unknown entity prototype '%s'", name))
   end
   local internal_id = session.next_internal_id
   session.next_internal_id = internal_id + 1
+  local local_position = M.to_local_position(session, world_position)
   session.entities[internal_id] = {
     internal_id = internal_id,
     raw = {
       name = name,
-      position = M.snap_position(prototype.tile_width, prototype.tile_height, position),
+      position = M.snap_position(prototype.tile_width, prototype.tile_height, local_position),
       direction = direction or 0,
     },
     wires = {},
@@ -98,7 +99,7 @@ end
 -- Обратная операция офсета из rendering.lua (target = canvas_offset +
 -- raw.position - blueprint_center) -- переводит мировую (target-space)
 -- позицию клика обратно в локальные координаты blueprint'а.
-local function to_local_position(session, world_position)
+function M.to_local_position(session, world_position)
   local offset = session.canvas_offset
   local center = session.blueprint_center
   return {
@@ -113,7 +114,7 @@ end
 -- наложении спрайтов возвращает первую найденную в порядке pairs()
 -- (недетерминированно), это принятое ограничение MVP, не баг.
 function M.find_entity_at(session, world_position)
-  local local_position = to_local_position(session, world_position)
+  local local_position = M.to_local_position(session, world_position)
   for internal_id, record in pairs(session.entities) do
     local prototype = prototypes.entity[record.raw.name]
     local tile_width = prototype and prototype.tile_width or 1

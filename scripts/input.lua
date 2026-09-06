@@ -115,15 +115,27 @@ function M.on_pick_entity(event)
   game.get_player(event.player_index).print({"", "Blueprint Editor: selected " .. session.selected_palette_item})
 end
 
+local function is_placeable(name)
+  return prototypes.entity[name] ~= nil
+end
+
 local function cycle_palette(event, delta)
   local session = state.get_session(event.player_index)
   if not session then
     return
   end
+  local player = game.get_player(event.player_index)
   local current_index = palette_index(session.selected_palette_item) or 0
-  local next_index = ((current_index - 1 + delta) % #PALETTE_ITEMS) + 1
-  session.selected_palette_item = PALETTE_ITEMS[next_index]
-  game.get_player(event.player_index).print({"", "Blueprint Editor: selected " .. session.selected_palette_item})
+  for _ = 1, #PALETTE_ITEMS do
+    current_index = ((current_index - 1 + delta) % #PALETTE_ITEMS) + 1
+    local candidate = PALETTE_ITEMS[current_index]
+    if is_placeable(candidate) then
+      session.selected_palette_item = candidate
+      player.print({"", "Blueprint Editor: selected " .. candidate})
+      return
+    end
+  end
+  player.print({"", "Blueprint Editor: no placeable entities available in the palette (missing mods?)."})
 end
 
 function M.on_cycle_palette_next(event)
