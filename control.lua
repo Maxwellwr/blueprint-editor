@@ -40,7 +40,7 @@ local function on_toggle_editor(event)
     render.clear_session_renders(session)
     surface.teleport_out(player)
   else
-    local import_data = blueprint_io.import_from_stack(player.cursor_stack, player.cursor_record)
+    local import_data = blueprint_io.import_from_stack(player, player.cursor_stack, player.cursor_record)
     if surface.teleport_in(player, import_data) then
       local new_session = state.get_session(player.index)
       render.draw_grid(new_session)

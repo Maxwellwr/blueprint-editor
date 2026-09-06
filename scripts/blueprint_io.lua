@@ -49,6 +49,39 @@ function M.compute_bounding_box_center(entities, tiles)
   return { x = (min_x + max_x) / 2, y = (min_y + max_y) / 2 }
 end
 
+-- Разворачивает blueprint-книгу (если держат книгу, а не одиночный чертёж)
+-- до её текущей выбранной страницы -- по образцу проверенной сторонней
+-- реализации (wcjohnson/factorio-mod-core, blueprint/actual.lua), не
+-- придумано с нуля. `record` предпочтительнее `stack`, если оба присутствуют
+-- (см. import_from_stack). `is_preview` отсекает превью-запись библиотеки,
+-- которая выглядит как blueprint, но не является реальными данными.
+local function unwrap_actual_blueprint(player, cursor_stack, cursor_record)
+  local record = cursor_record
+  while record and record.valid and record.type == "blueprint-book" do
+    record = record.get_selected_record(player)
+  end
+  if record and record.valid and not record.is_preview and record.type == "blueprint" and record.is_blueprint_setup() then
+    return record, "cursor_record"
+  end
+
+  local stack = cursor_stack
+  if not (stack and stack.valid_for_read) then
+    return nil, nil
+  end
+  while stack and stack.valid_for_read and stack.is_blueprint_book do
+    local main_inventory = stack.get_inventory(defines.inventory.item_main)
+    if not main_inventory then
+      return nil, nil
+    end
+    stack = main_inventory[stack.active_index]
+  end
+  if stack and stack.valid_for_read and stack.is_blueprint and stack.is_blueprint_setup() then
+    return stack, "cursor"
+  end
+
+  return nil, nil
+end
+
 -- API-факт (проверено lua-api.factorio.com перед написанием кода): свойство
 -- называется `preview_icons`, а не `blueprint_icons` (последнее нигде не
 -- существует в текущей версии API -- расхождение с формулировкой ADR-0001
@@ -67,13 +100,9 @@ end
 -- подтверждено в игре), а Phase 1 эти поля всё равно нигде не использует.
 -- Уточнить точный набор полей LuaRecord, когда они реально понадобятся
 -- (Phase 4, сохранение обратно).
-function M.import_from_stack(cursor_stack, cursor_record)
-  local source, source_kind
-  if cursor_record and cursor_record.valid and cursor_record.type == "blueprint" and cursor_record.is_blueprint_setup() then
-    source, source_kind = cursor_record, "cursor_record"
-  elseif cursor_stack and cursor_stack.valid_for_read and cursor_stack.is_blueprint and cursor_stack.is_blueprint_setup() then
-    source, source_kind = cursor_stack, "cursor"
-  else
+function M.import_from_stack(player, cursor_stack, cursor_record)
+  local source, source_kind = unwrap_actual_blueprint(player, cursor_stack, cursor_record)
+  if not source then
     return nil
   end
 
