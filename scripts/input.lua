@@ -2,20 +2,26 @@ local state = require("scripts.state")
 local canvas = require("scripts.canvas")
 local render = require("scripts.rendering")
 
--- Ad-hoc минимальный список размещаемых сущностей (roadmap Phase 2: "A
--- minimal ad-hoc entity picker is fine here; the full palette UI is Phase
--- 5"). Без catalog.lua -- жёстко зашитый небольшой набор, покрывающий
--- typичные playtest-сценарии (пояс, инсертер, два вида сундуков, столб для
--- проверки wire bookkeeping, труба, сборочная машина). Полностью заменяется
--- catalog.lua в Phase 5 -- не переживает эту фазу как архитектура.
+-- Ad-hoc единый список размещаемых сущностей и тайлов (roadmap Phase 3:
+-- "tile catalog basics" -- та же ad-hoc-костыльная конструкция, что
+-- PALETTE_ITEMS в Phase 2, теперь вперемешку {kind, name}. [ / ] листают весь
+-- список без отдельного режима entity/tile (решение, зафиксированное при
+-- планировании фазы, см. phase-3-plan.md "Область фазы"). Полностью
+-- заменяется catalog.lua в Phase 5. Имена тайлов проверены в файлах
+-- установленной игры (см. phase-3-plan.md "Найденные API-факты"), не по
+-- памяти.
 local PALETTE_ITEMS = {
-  "transport-belt",
-  "inserter",
-  "iron-chest",
-  "wooden-chest",
-  "small-electric-pole",
-  "pipe",
-  "assembling-machine-1",
+  { kind = "entity", name = "transport-belt" },
+  { kind = "entity", name = "inserter" },
+  { kind = "entity", name = "iron-chest" },
+  { kind = "entity", name = "wooden-chest" },
+  { kind = "entity", name = "small-electric-pole" },
+  { kind = "entity", name = "pipe" },
+  { kind = "entity", name = "assembling-machine-1" },
+  { kind = "tile", name = "concrete" },
+  { kind = "tile", name = "stone-path" },
+  { kind = "tile", name = "refined-concrete" },
+  { kind = "tile", name = "landfill" },
 }
 
 local function area_center(area)
@@ -25,26 +31,71 @@ local function area_center(area)
   }
 end
 
-local function palette_index(name)
-  for i, item_name in ipairs(PALETTE_ITEMS) do
-    if item_name == name then
+local function palette_index(selected)
+  if not selected then
+    return nil
+  end
+  for i, item in ipairs(PALETTE_ITEMS) do
+    if item.kind == selected.kind and item.name == selected.name then
       return i
     end
   end
   return nil
 end
 
--- Общий паттерн для eb-rotate/eb-delete/eb-pick-entity/alt-select (найдено
--- code review Phase 2 -- было продублировано 4 раза): найти сессию игрока,
--- затем сущность на указанной позиции. nil, nil, если сессии нет; session,
--- nil, если сессия есть, но сущность не найдена -- вызывающая сторона решает,
--- что делать в каждом случае.
+local function is_placeable(item)
+  if item.kind == "entity" then
+    return prototypes.entity[item.name] ~= nil
+  end
+  return prototypes.tile[item.name] ~= nil
+end
+
+-- Общий паттерн для eb-rotate (найдено code review Phase 2) -- найти сессию
+-- игрока, затем СУЩНОСТЬ на указанной позиции. Только сущности: у тайлов нет
+-- вращения (ADR-0001, тайлы без direction -- см. phase-3-plan.md "Найденные
+-- API-факты"), поэтому eb-rotate остаётся entity-only и этой функцией не
+-- расширяется на тайлы.
 local function get_session_and_entity(player_index, position)
   local session = state.get_session(player_index)
   if not session then
     return nil, nil
   end
   return session, canvas.find_entity_at(session, position)
+end
+
+-- Общий паттерн для удаления/подбора (Задача 4, Phase 3) -- сначала ищет
+-- сущность под позицией, затем (если сущности нет) тайл. Приоритет
+-- "сущность, потом тайл" зафиксирован при планировании фазы (см.
+-- phase-3-plan.md "Область фазы") -- один обработчик на оба случая, без
+-- привязки к тому, что сейчас выбрано в палитре.
+local function get_session_and_target(player_index, position)
+  local session = state.get_session(player_index)
+  if not session then
+    return nil, nil, nil
+  end
+  local internal_id = canvas.find_entity_at(session, position)
+  if internal_id then
+    return session, "entity", internal_id
+  end
+  local tile_key = canvas.find_tile_at(session, position)
+  if tile_key then
+    return session, "tile", tile_key
+  end
+  return session, nil, nil
+end
+
+local function remove_at(player_index, position)
+  local session, kind, target = get_session_and_target(player_index, position)
+  if not session or not kind then
+    return
+  end
+  if kind == "entity" then
+    render.clear_entity_render(session, target)
+    canvas.remove_entity(session, target)
+  else
+    render.clear_tile_render(session, target)
+    canvas.remove_tile(session, target)
+  end
 end
 
 local M = {}
@@ -61,41 +112,38 @@ function M.on_player_selected_area(event)
   if not session then
     return
   end
-  if not session.selected_palette_item then
+  local selected = session.selected_palette_item
+  if not selected then
     game.get_player(event.player_index).print(
-      {"", "Blueprint Editor: no entity selected -- press Q on an existing entity, or [ / ] to cycle the palette."})
+      {"", "Blueprint Editor: nothing selected -- press Q on an existing entity/tile, or [ / ] to cycle the palette."})
     return
   end
   local world_position = area_center(event.area)
-  -- Не полноценная collision-детекция (см. phase-2-plan.md "Область фазы" --
-  -- сознательно вне scope этой фазы), а точечная защита от самого частого
-  -- случая, найденного playtest'ом: повторный клик в ту же уже занятую
-  -- клетку молча ставил вторую сущность поверх первой. Проверяет только
-  -- попадание точки клика в footprint УЖЕ стоящей сущности -- не сравнивает
-  -- его с footprint'ом размещаемой (найдено code review Phase 2): разные по
-  -- размеру сущности всё ещё могут наложиться друг на друга, если клик
-  -- пришёлся рядом, а не точно на существующую. Полноценная проверка
-  -- пересечения footprint'ов осознанно отложена вместе с остальной
-  -- collision-детекцией.
-  if canvas.find_entity_at(session, world_position) then
-    game.get_player(event.player_index).print({"", "Blueprint Editor: position already occupied."})
-    return
+  if selected.kind == "entity" then
+    -- Не полноценная collision-детекция (см. phase-2-plan.md "Область
+    -- фазы" -- сознательно вне scope), а точечная защита от повторного
+    -- клика в занятую клетку (найдено playtest'ом Phase 2).
+    if canvas.find_entity_at(session, world_position) then
+      game.get_player(event.player_index).print({"", "Blueprint Editor: position already occupied."})
+      return
+    end
+    local internal_id = canvas.place_entity(session, selected.name, world_position, 0)
+    render.draw_entity(session, internal_id)
+  else
+    -- Тайлы перезаписываются без occupied-guard (см. phase-3-plan.md
+    -- "Область фазы") -- place_tile и draw_tile сами корректно обрабатывают
+    -- уже занятую клетку.
+    local key = canvas.place_tile(session, selected.name, world_position)
+    render.draw_tile(session, key)
   end
-  local internal_id = canvas.place_entity(session, session.selected_palette_item, world_position, 0)
-  render.draw_entity(session, internal_id)
 end
 
--- Alt-select -- удаление.
+-- Alt-select -- удаление (сущность, иначе тайл).
 function M.on_player_alt_selected_area(event)
   if event.item ~= "eb-cursor-tool" then
     return
   end
-  local session, internal_id = get_session_and_entity(event.player_index, area_center(event.area))
-  if not session or not internal_id then
-    return
-  end
-  render.clear_entity_render(session, internal_id)
-  canvas.remove_entity(session, internal_id)
+  remove_at(event.player_index, area_center(event.area))
 end
 
 function M.on_rotate(event)
@@ -109,26 +157,27 @@ function M.on_rotate(event)
   end
 end
 
+-- Удаление по хоткею (альтернатива alt-клику) -- та же логика "сущность,
+-- иначе тайл".
 function M.on_delete(event)
-  local session, internal_id = get_session_and_entity(event.player_index, event.cursor_position)
-  if not session or not internal_id then
-    return
-  end
-  render.clear_entity_render(session, internal_id)
-  canvas.remove_entity(session, internal_id)
+  remove_at(event.player_index, event.cursor_position)
 end
 
+-- Подбор в палитру того, что под курсором -- сущность, иначе тайл (тот же
+-- приоритет, что и у удаления).
 function M.on_pick_entity(event)
-  local session, internal_id = get_session_and_entity(event.player_index, event.cursor_position)
-  if not session or not internal_id then
+  local session, kind, target = get_session_and_target(event.player_index, event.cursor_position)
+  if not session or not kind then
     return
   end
-  session.selected_palette_item = session.entities[internal_id].raw.name
-  game.get_player(event.player_index).print({"", "Blueprint Editor: selected " .. session.selected_palette_item})
-end
-
-local function is_placeable(name)
-  return prototypes.entity[name] ~= nil
+  local name
+  if kind == "entity" then
+    name = session.entities[target].raw.name
+  else
+    name = session.tiles[target].raw.name
+  end
+  session.selected_palette_item = { kind = kind, name = name }
+  game.get_player(event.player_index).print({"", "Blueprint Editor: selected " .. name})
 end
 
 local function cycle_palette(event, delta)
@@ -143,11 +192,11 @@ local function cycle_palette(event, delta)
     local candidate = PALETTE_ITEMS[current_index]
     if is_placeable(candidate) then
       session.selected_palette_item = candidate
-      player.print({"", "Blueprint Editor: selected " .. candidate})
+      player.print({"", "Blueprint Editor: selected " .. candidate.name})
       return
     end
   end
-  player.print({"", "Blueprint Editor: no placeable entities available in the palette (missing mods?)."})
+  player.print({"", "Blueprint Editor: nothing placeable available in the palette (missing mods?)."})
 end
 
 function M.on_cycle_palette_next(event)
@@ -159,14 +208,8 @@ function M.on_cycle_palette_prev(event)
 end
 
 -- ADR-0001 §5: "re-enforce it staying equipped via
--- on_player_cursor_stack_changed while a session is active" -- защита от
--- случайной потери инструмента (Q/скролл/дроп). Проверка ТЕКУЩЕГО стека
--- перед записью обязательна: on_player_cursor_stack_changed фирится и на
--- собственную script-запись (тот же тик, задокументировано как "not
--- instantly"), без этой проверки -- бесконечный цикл событий. Подтверждено
--- playtest'ом Phase 2: ванильное действие Q само чистит курсор, из-за чего
--- этот обработчик срабатывает вслед за каждым промахом Q -- безобидно,
--- переэкипировка проходит мгновенно и не залипает.
+-- on_player_cursor_stack_changed while a session is active" -- без изменений
+-- относительно Phase 2.
 function M.on_cursor_stack_changed(event)
   local session = state.get_session(event.player_index)
   if not session then
@@ -183,8 +226,6 @@ function M.on_cursor_stack_changed(event)
   if player.clear_cursor() then
     cursor_stack.set_stack({ name = "eb-cursor-tool" })
   else
-    -- Найдено code review Phase 2: аналогичный случай в surface.lua
-    -- (teleport_in) сообщает игроку, а этот путь молчал.
     player.print({"", "Blueprint Editor: could not re-equip the cursor tool (cursor full)."})
   end
 end
