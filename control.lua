@@ -3,6 +3,8 @@ local migrations = require("scripts.migrations")
 local surface = require("scripts.surface")
 local blueprint_io = require("scripts.blueprint_io")
 local render = require("scripts.rendering")
+local input = require("scripts.input")
+local debug_commands = require("scripts.debug")
 
 local function on_init()
   state.init()
@@ -50,23 +52,18 @@ local function on_toggle_editor(event)
   end
 end
 
--- Спайк: подтвердить, что plain click (без drag) с equipped selection-tool
--- всё ещё стреляет on_player_selected_area с маленькой area (ADR-0001 §5,
--- §2 "Unverified"). Временный лог, результат зафиксирован как подтверждённый
--- факт в docs/phases/phase-0-implementation.md.
--- TODO(Phase 2): удалить этот хендлер, заменить полноценной обработкой в input.lua.
-local function on_selected_area(event)
-  if event.item == "eb-cursor-tool" then
-    log(string.format(
-      "eb spike: on_player_selected_area fired, area=%s, entities=%d",
-      serpent.line(event.area), #event.entities
-    ))
-  end
-end
-
 script.on_init(on_init)
 script.on_configuration_changed(on_configuration_changed)
 script.on_load(on_load)
 script.on_event(defines.events.on_player_joined_game, on_player_joined_game)
 script.on_event("eb-toggle-editor", on_toggle_editor)
-script.on_event(defines.events.on_player_selected_area, on_selected_area)
+script.on_event(defines.events.on_player_selected_area, input.on_player_selected_area)
+script.on_event(defines.events.on_player_alt_selected_area, input.on_player_alt_selected_area)
+script.on_event(defines.events.on_player_cursor_stack_changed, input.on_cursor_stack_changed)
+script.on_event("eb-rotate", input.on_rotate)
+script.on_event("eb-delete", input.on_delete)
+script.on_event("eb-pick-entity", input.on_pick_entity)
+script.on_event("eb-cycle-palette-next", input.on_cycle_palette_next)
+script.on_event("eb-cycle-palette-prev", input.on_cycle_palette_prev)
+
+commands.add_command("eb-dump-session", {"", "Blueprint Editor: dump the current editor session to the log."}, debug_commands.dump_session)
