@@ -71,11 +71,11 @@ describe("canvas.remove_wire_references", function()
 end)
 
 describe("canvas.to_local_position", function()
-  -- assert.near (not assert.are.same) is intentional here: 1026.3 has no
-  -- exact IEEE-754 double representation, so world_position.x - offset.x
-  -- lands a few ULPs off the literal 2.3/6.05 regardless of a correct
-  -- implementation -- exact table equality on these fixtures is not
-  -- achievable and is not a signal of a bug.
+  -- assert.near (не assert.are.same) выбран намеренно: у 1026.3 нет точного
+  -- IEEE-754 double представления, поэтому world_position.x - offset.x
+  -- окажется на несколько ULP в стороне от литерала 2.3/6.05 даже при
+  -- полностью корректной реализации -- точное табличное равенство на этих
+  -- фикстурах недостижимо и не является признаком бага.
   it("round-trips world position back to raw.position space for a centered (new-mode) session", function()
     local session = { canvas_offset = { x = 1024, y = 0 }, blueprint_center = { x = 0, y = 0 } }
     local result = canvas.to_local_position(session, { x = 1026.3, y = 2.1 })
