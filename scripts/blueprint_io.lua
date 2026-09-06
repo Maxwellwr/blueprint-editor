@@ -165,7 +165,18 @@ function M.import_from_stack(player, cursor_stack, cursor_record)
   local bp_entities = source.get_blueprint_entities() or {}
   local bp_tiles = source.get_blueprint_tiles() or {}
   local entities, tiles, next_internal_id = M.build_import_data(bp_entities, bp_tiles)
-  local blueprint_center = M.compute_bounding_box_center(entities, tiles)
+  -- draw_grid (rendering.lua) рисует линии сетки на целых мировых координатах;
+  -- рендер сущностей/тайлов и canvas.to_local_position используют
+  -- blueprint_center как офсет. Если оставить его дробным (обычный случай --
+  -- bounding-box middle почти никогда не целый), офсет сдвигает раскладку на
+  -- дробную величину, и сущности перестают попадать в клетки видимой сетки
+  -- (найдено playtest'ом Phase 2). Округляем до целого -- сдвиг видимого
+  -- центра максимум на полтайла, зато позиции остаются на тех же
+  -- чётность-зависимых узлах (.0/.5), что и сетка. compute_bounding_box_center
+  -- сам остаётся точным (его busted-тесты не трогаем) -- округление только
+  -- здесь, в точке использования.
+  local raw_center = M.compute_bounding_box_center(entities, tiles)
+  local blueprint_center = { x = math.floor(raw_center.x + 0.5), y = math.floor(raw_center.y + 0.5) }
 
   local label, icons, blueprint_snap
   if source_kind == "cursor" then
