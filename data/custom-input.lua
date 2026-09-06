@@ -26,13 +26,20 @@ data:extend({
   {
     type = "custom-input",
     name = "eb-cycle-palette-next",
-    key_sequence = "bracketright",
+    -- Найдено playtest'ом Phase 2: "bracketright"/"bracketleft" -- не
+    -- существующие имена клавиш, список валидных проверен в реальных файлах
+    -- игры (doc-html/prototype-api.json, key_sequence) -- правильно
+    -- LEFTBRACKET/RIGHTBRACKET (капсом, без дефиса). Factorio не падает на
+    -- невалидном имени при загрузке data-стадии, просто оставляет биндинг
+    -- неназначенным -- отсюда молчаливая нерабочая клавиша без единой строки
+    -- в логе.
+    key_sequence = "RIGHTBRACKET",
     consuming = "none",
   },
   {
     type = "custom-input",
     name = "eb-cycle-palette-prev",
-    key_sequence = "bracketleft",
+    key_sequence = "LEFTBRACKET",
     consuming = "none",
   },
 })
