@@ -58,6 +58,44 @@ function M.teleport_in(player, import_data)
   local canvas_offset = region_offset(player.index)
   local canvas_surface = M.ensure_canvas_surface()
 
+  -- Освобождаем курсор игрока ДО переключения на god-режим и до телепорта --
+  -- god-контроллер, судя по всему, имеет собственный, независимый от
+  -- character курсор: попытка прочитать/обменять player.cursor_stack ПОСЛЕ
+  -- переключения на god видит его пустым, даже если реальный предмет всё ещё
+  -- "в руке" character-контроллера (обнаружено playtest'ом -- см.
+  -- phase-1-implementation.md; изначально пин был написан после переключения
+  -- и терял blueprint-книгу целиком). Держать в руках реальный blueprint
+  -- внутри редактора и так мешает (нативный превью-режим размещения путается
+  -- под ногами, попытка клика роняет "Невозможно построить в неизведанной
+  -- области") -- поэтому чистим курсор независимо от того, войдём ли мы в
+  -- god-режим. Обычный (инвентарный) blueprint прячем в скрытый инвентарь
+  -- (ADR-0001 §8(b).3) и вернём при выходе. Blueprint из Blueprint Library
+  -- (`cursor_record`) восстановить программно нельзя -- `cursor_record`
+  -- read-only, API не даёт способа заново прикрепить LuaRecord к курсору --
+  -- поэтому просто чистим курсор (то же самое действие, что игрок и так
+  -- делает через `Q`); сама запись остаётся целой в библиотеке, сообщение
+  -- об этом -- при выходе.
+  local pinned_origin = nil
+  if import_data then
+    if import_data.origin.kind == "cursor" then
+      local pinned = game.create_inventory(1)
+      local swapped = player.cursor_stack.swap_stack(pinned[1])
+      log(string.format("eb debug3: pin swap_stack=%s pinned_stack_name=%s",
+        tostring(swapped), tostring(pinned[1].valid_for_read and pinned[1].name)))
+      if swapped then
+        pinned_origin = { kind = "pinned_stack", inventory = pinned }
+        import_data.origin = pinned_origin
+      else
+        -- swap_stack не сработал -- НЕ уничтожаем pinned (он всё равно пуст,
+        -- раз обмен не удался), оставляем blueprint как есть в руке игрока.
+        pinned.destroy()
+        player.print({"", "Blueprint Editor: could not free up your cursor -- entered editor with the blueprint still in hand."})
+      end
+    elseif import_data.origin.kind == "cursor_record" then
+      player.clear_cursor()
+    end
+  end
+
   -- God-режим -- playtest-фикс (не было в исходном docs/phases/phase-1-plan.md,
   -- зафиксировано как отклонение от ADR-0001 §5 "restore exactly" в
   -- docs/phases/phase-1-implementation.md): свободный облёт вместо коллизий
@@ -73,42 +111,20 @@ function M.teleport_in(player, import_data)
     if pre_edit.character and pre_edit.character.valid then
       player.set_controller({ type = defines.controllers.character, character = pre_edit.character })
     end
+    if pinned_origin then
+      player.cursor_stack.swap_stack(pinned_origin.inventory[1])
+      pinned_origin.inventory.destroy()
+      import_data.origin = { kind = "cursor" }
+    end
     return false
   end
 
-  -- Освобождаем курсор игрока для свободного облёта -- держать в руках
-  -- реальный blueprint внутри редактора мешает (нативный превью-режим
-  -- размещения путается под ногами, попытка клика роняет
-  -- "Невозможно построить в неизведанной области"). Обычный (инвентарный)
-  -- blueprint прячем в скрытый инвентарь (ADR-0001 §8(b).3) и вернём при
-  -- выходе. Blueprint из Blueprint Library (`cursor_record`) восстановить
-  -- программно нельзя -- `cursor_record` read-only, API не даёт способа
-  -- заново прикрепить LuaRecord к курсору -- поэтому просто чистим курсор
-  -- (то же самое действие, что игрок и так делает через `Q`); сама запись
-  -- остаётся целой в библиотеке, сообщение об этом -- при выходе.
-  if import_data then
-    if import_data.origin.kind == "cursor" then
-      local pinned = game.create_inventory(1)
-      local swapped = player.cursor_stack.swap_stack(pinned[1])
-      log(string.format("eb debug3: pin swap_stack=%s cursor_stack_name=%s pinned_stack_name=%s",
-        tostring(swapped), tostring(player.cursor_stack and player.cursor_stack.valid_for_read and player.cursor_stack.name),
-        tostring(pinned[1].valid_for_read and pinned[1].name)))
-      if swapped then
-        import_data.origin = { kind = "pinned_stack", inventory = pinned }
-      else
-        -- swap_stack не сработал (не подтверждено документацией, для каких
-        -- стеков это возможно) -- НЕ уничтожаем pinned (он всё равно пуст,
-        -- раз обмен не удался), оставляем blueprint как есть в руке игрока.
-        pinned.destroy()
-        player.print({"", "Blueprint Editor: could not free up your cursor -- entered editor with the blueprint still in hand."})
-      end
-    elseif import_data.origin.kind == "cursor_record" then
-      player.clear_cursor()
+  if not import_data then
+    if player.clear_cursor() then
+      player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
+    else
+      player.print({"", "Blueprint Editor: could not equip the cursor tool (cursor full) -- entered editor without it."})
     end
-  elseif player.clear_cursor() then
-    player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
-  else
-    player.print({"", "Blueprint Editor: could not equip the cursor tool (cursor full) -- entered editor without it."})
   end
 
   state.start_session(player.index, pre_edit, canvas_offset, import_data)
