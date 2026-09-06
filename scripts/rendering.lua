@@ -105,6 +105,8 @@ function M.draw_tile(session, key)
     target = { offset.x + raw.position.x - center.x + 0.5, offset.y + raw.position.y - center.y + 0.5 },
     surface = surface,
     players = { session.player_index },
+    -- слой ниже сущностей: тайлы не закрывают сущность на той же ячейке
+    render_layer = "ground-layer-1",
   }
 end
 
