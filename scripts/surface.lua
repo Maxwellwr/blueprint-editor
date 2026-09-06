@@ -153,6 +153,17 @@ function M.teleport_out(player)
   if origin and origin.kind == "pinned_stack" then
     local pinned_stack = origin.inventory[1]
     if player.cursor_stack then
+      -- Найдено code review Phase 2: с тех пор как teleport_in безусловно
+      -- экипирует eb-cursor-tool (Задача 5, включая edit-режим), курсор
+      -- здесь больше не пуст, как предполагал этот код изначально (Phase 1).
+      -- Без явной очистки swap_stack поменял бы местами eb-cursor-tool и
+      -- заколотый blueprint -- сам blueprint при этом корректно попадёт в
+      -- курсор, но pinned_stack после обмена не опустеет (получит наш
+      -- инструмент вместо ничего), и код ниже ошибочно решит, что обмен
+      -- провалился, и попытается "уронить" уже ненужный eb-cursor-tool.
+      -- Чистим курсор явно до swap -- восстанавливает исходное допущение
+      -- "курсор пуст перед обменом".
+      player.cursor_stack.clear()
       player.cursor_stack.swap_stack(pinned_stack)
     end
     if pinned_stack.valid_for_read then
