@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-07
+
+Phase 3 — Tiles.
+
+### Добавлено
+
+- `scripts/canvas.lua` — мутационное API тайлов (`place_tile`/`remove_tile`/`find_tile_at`), чистая логика с TDD (`tile_coordinates`, `tile_key`).
+- `scripts/rendering.lua` — `draw_tile`/`clear_tile_render` (поштучный рендер тайла, без утечки render-объекта при перезаписи клетки), `TILE_RENDER_WARN_THRESHOLD`.
+- `scripts/input.lua` — единая палитра сущностей и тайлов (`[`/`]` листают оба типа), приоритет «сущность, потом тайл» для удаления (alt-select/`eb-delete`) и подбора (`eb-pick-entity`).
+- `scripts/migrations.lua` — миграция `0.4.0` (нормализация формы `Session.selected_palette_item`).
+- `busted`: +1 тест сверх плана (31/31 всего) — контрактный тест, сверяющий ключи `canvas.tile_key` и `blueprint_io.build_import_data`.
+
+### Исправлено
+
+- Тайлы визуально перекрывали сущность на той же клетке после импорта (общий дефолтный `render_layer = "arrow"` у сущностей и тайлов, тайлы рисовались вторыми) — данные не терялись, баг был чисто рендер-слоя; тайлам явно задан более низкий `render_layer`.
+- `cycle_palette` больше не сохраняет в сессию прямую ссылку на элемент модульной константы палитры (копирует значение, как и подбор через `Q`).
+- `remove_at` в `input.lua` явно падает на нераспознанном типе цели вместо тихого предположения «раз не сущность — значит тайл» (fail-fast).
+
+См. [`docs/phases/phase-3-implementation.md`](docs/phases/phase-3-implementation.md) для полного списка решений, найденных фактов и известных ограничений.
+
 ## [0.3.0] — 2026-09-06
 
 Phase 2 — Add/remove/rotate entities + entity_number/wire bookkeeping.
