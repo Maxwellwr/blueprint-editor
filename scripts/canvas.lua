@@ -108,6 +108,21 @@ function M.to_local_position(session, world_position)
   }
 end
 
+-- Чистая логика (API-факт: TilePosition "rounds any non-integer x/y down to
+-- whole numbers", doc-html/runtime-api.json -- см. phase-3-plan.md "Найденные
+-- API-факты") -- в отличие от snap_position у сущностей, тайлы всегда 1x1 и
+-- без odd/even-центрирования, просто floor по обеим осям.
+function M.tile_coordinates(local_position)
+  return { x = math.floor(local_position.x), y = math.floor(local_position.y) }
+end
+
+-- Тот же формат "x,y", что уже использует blueprint_io.build_import_data для
+-- ключей session.tiles -- не создаём второй несовместимый способ индексации
+-- одной и той же таблицы.
+function M.tile_key(x, y)
+  return string.format("%d,%d", x, y)
+end
+
 -- Первая сущность, чей footprint (tile_width/tile_height вокруг raw.position,
 -- то же правило центрирования, что и snap_position) содержит world_position.
 -- Коллизии не проверяются при размещении (см. "Область фазы") -- при
@@ -125,6 +140,48 @@ function M.find_entity_at(session, world_position)
         and local_position.y >= pos.y - half_h and local_position.y <= pos.y + half_h then
       return internal_id
     end
+  end
+  return nil
+end
+
+-- Ниже -- API-зависимые обёртки для тайлов (docs/sdlc.md "Тестирование":
+-- верификация -- dev-loop + ручной playtest, Задача 5).
+
+-- В отличие от place_entity, всегда ПЕРЕЗАПИСЫВАЕТ тайл в клетке -- решение,
+-- зафиксированное при планировании фазы (см. phase-3-plan.md "Область
+-- фазы"): на клетке физически может быть только один тайл, повторный клик --
+-- "покраска", а не конфликт размещения, отклонять нечего. Preserve-
+-- unknown-fields (ADR-0001 §6): новый минимальный raw ({name, position})
+-- строится только для этой -- свежеразмещённой/перезаписанной -- записи;
+-- импортированные TileRecord под другими ключами не трогаются.
+function M.place_tile(session, name, world_position)
+  if not prototypes.tile[name] then
+    error(string.format("Blueprint Editor: unknown tile prototype '%s'", name))
+  end
+  local local_position = M.to_local_position(session, world_position)
+  local coords = M.tile_coordinates(local_position)
+  local key = M.tile_key(coords.x, coords.y)
+  session.tiles[key] = { raw = { name = name, position = coords } }
+  return key
+end
+
+function M.remove_tile(session, key)
+  local record = session.tiles[key]
+  if not record then
+    return nil
+  end
+  session.tiles[key] = nil
+  return record
+end
+
+-- Тайлы всегда занимают ровно одну клетку -- в отличие от find_entity_at,
+-- никакого footprint-перебора не нужно, прямое попадание по ключу клетки.
+function M.find_tile_at(session, world_position)
+  local local_position = M.to_local_position(session, world_position)
+  local coords = M.tile_coordinates(local_position)
+  local key = M.tile_key(coords.x, coords.y)
+  if session.tiles[key] then
+    return key
   end
   return nil
 end

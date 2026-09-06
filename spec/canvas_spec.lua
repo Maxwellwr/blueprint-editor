@@ -90,3 +90,27 @@ describe("canvas.to_local_position", function()
     assert.near(-140.9, result.y, 0.0001)
   end)
 end)
+
+describe("canvas.tile_coordinates", function()
+  it("floors a fractional local position down to the containing cell", function()
+    assert.are.same({ x = 3, y = 4 }, canvas.tile_coordinates({ x = 3.7, y = 4.1 }))
+  end)
+
+  it("floors negative fractional coordinates towards negative infinity", function()
+    assert.are.same({ x = -4, y = -1 }, canvas.tile_coordinates({ x = -3.2, y = -0.5 }))
+  end)
+
+  it("leaves an already-integer position untouched", function()
+    assert.are.same({ x = 5, y = -2 }, canvas.tile_coordinates({ x = 5, y = -2 }))
+  end)
+end)
+
+describe("canvas.tile_key", function()
+  it("formats coordinates as the same \"x,y\" key blueprint_io uses", function()
+    assert.are.equal("3,4", canvas.tile_key(3, 4))
+  end)
+
+  it("formats negative coordinates without losing the sign", function()
+    assert.are.equal("-4,-1", canvas.tile_key(-4, -1))
+  end)
+end)
