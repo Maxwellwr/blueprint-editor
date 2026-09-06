@@ -11,6 +11,11 @@ local GRID_COLOR = { r = 1, g = 1, b = 1, a = 0.15 }
 -- playtest этой же фазы. Уточняется по факту (batching/LOD -- Phase 7).
 local ENTITY_RENDER_WARN_THRESHOLD = 2000
 
+-- Тот же принцип, что ENTITY_RENDER_WARN_THRESHOLD (docs/sdlc.md, "Явный
+-- бюджет производительности") -- Phase 1 рисовала тайлы батчем без явного
+-- порога; закрывается вместе с переходом draw_tiles на поштучный паттерн.
+local TILE_RENDER_WARN_THRESHOLD = 4000
+
 local M = {}
 
 local function canvas_surface()
@@ -83,23 +88,39 @@ function M.draw_entities(session)
   end
 end
 
-function M.draw_tiles(session)
+function M.draw_tile(session, key)
+  M.clear_tile_render(session, key)
   local surface = canvas_surface()
   local offset = session.canvas_offset
   local center = session.blueprint_center
-  for key, record in pairs(session.tiles) do
-    local raw = record.raw
-    local sprite = "tile/" .. raw.name
-    if not helpers.is_valid_sprite_path(sprite) then
-      log(string.format("Blueprint Editor: no sprite for tile '%s' (mod not installed?) -- using placeholder icon.", raw.name))
-      sprite = "utility/missing_icon"
-    end
-    session.render_ids.tiles[key] = rendering.draw_sprite{
-      sprite = sprite,
-      target = { offset.x + raw.position.x - center.x + 0.5, offset.y + raw.position.y - center.y + 0.5 },
-      surface = surface,
-      players = { session.player_index },
-    }
+  local record = session.tiles[key]
+  local raw = record.raw
+  local sprite = "tile/" .. raw.name
+  if not helpers.is_valid_sprite_path(sprite) then
+    log(string.format("Blueprint Editor: no sprite for tile '%s' (mod not installed?) -- using placeholder icon.", raw.name))
+    sprite = "utility/missing_icon"
+  end
+  session.render_ids.tiles[key] = rendering.draw_sprite{
+    sprite = sprite,
+    target = { offset.x + raw.position.x - center.x + 0.5, offset.y + raw.position.y - center.y + 0.5 },
+    surface = surface,
+    players = { session.player_index },
+  }
+end
+
+function M.draw_tiles(session)
+  local count = 0
+  for _ in pairs(session.tiles) do
+    count = count + 1
+  end
+  if count > TILE_RENDER_WARN_THRESHOLD then
+    log(string.format(
+      "Blueprint Editor: rendering %d tiles, above the Phase 3 soft threshold (%d) -- watch for perf issues.",
+      count, TILE_RENDER_WARN_THRESHOLD
+    ))
+  end
+  for key in pairs(session.tiles) do
+    M.draw_tile(session, key)
   end
 end
 
@@ -120,6 +141,14 @@ function M.clear_entity_render(session, internal_id)
     render_object:destroy()
   end
   session.render_ids.entities[internal_id] = nil
+end
+
+function M.clear_tile_render(session, key)
+  local render_object = session.render_ids.tiles[key]
+  if render_object and render_object.valid then
+    render_object:destroy()
+  end
+  session.render_ids.tiles[key] = nil
 end
 
 function M.clear_session_renders(session)
