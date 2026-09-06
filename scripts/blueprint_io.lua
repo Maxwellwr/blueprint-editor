@@ -53,13 +53,27 @@ end
 -- называется `preview_icons`, а не `blueprint_icons` (последнее нигде не
 -- существует в текущей версии API -- расхождение с формулировкой ADR-0001
 -- §8(b).2, зафиксировано как найденный факт в phase-1-implementation.md).
-function M.import_from_stack(cursor_stack)
-  if not (cursor_stack and cursor_stack.valid_for_read and cursor_stack.is_blueprint and cursor_stack.is_blueprint_setup()) then
+--
+-- API-факт (Phase 1, патч 0.2.1): blueprint, перетащенный прямо из игровой
+-- Blueprint Library, попадает в `player.cursor_record` (LuaRecord), а не в
+-- `player.cursor_stack` (LuaItemStack) -- последний в этом случае читается
+-- как невалидный (`valid_for_read = false`). LuaRecord даёт тот же набор
+-- полей/методов (`get_blueprint_entities`, `get_blueprint_tiles`, `label`,
+-- `preview_icons`, `blueprint_snap_to_grid`, ...), поэтому оба источника
+-- читаются единообразно ниже. Это отменяет известное ограничение из
+-- phase-1-implementation.md ("перенос из Blueprint Library не работает").
+function M.import_from_stack(cursor_stack, cursor_record)
+  local source, source_kind
+  if cursor_record and cursor_record.valid and cursor_record.type == "blueprint" and cursor_record.is_blueprint_setup() then
+    source, source_kind = cursor_record, "cursor_record"
+  elseif cursor_stack and cursor_stack.valid_for_read and cursor_stack.is_blueprint and cursor_stack.is_blueprint_setup() then
+    source, source_kind = cursor_stack, "cursor"
+  else
     return nil
   end
 
-  local bp_entities = cursor_stack.get_blueprint_entities() or {}
-  local bp_tiles = cursor_stack.get_blueprint_tiles() or {}
+  local bp_entities = source.get_blueprint_entities() or {}
+  local bp_tiles = source.get_blueprint_tiles() or {}
   local entities, tiles, next_internal_id = M.build_import_data(bp_entities, bp_tiles)
   local blueprint_center = M.compute_bounding_box_center(entities, tiles)
 
@@ -68,14 +82,14 @@ function M.import_from_stack(cursor_stack)
     tiles = tiles,
     next_internal_id = next_internal_id,
     blueprint_center = blueprint_center,
-    label = cursor_stack.label,
-    icons = cursor_stack.preview_icons,
+    label = source.label,
+    icons = source.preview_icons,
     blueprint_snap = {
-      snap_to_grid = cursor_stack.blueprint_snap_to_grid,
-      absolute_snapping = cursor_stack.blueprint_absolute_snapping,
-      position_relative_to_grid = cursor_stack.blueprint_position_relative_to_grid,
+      snap_to_grid = source.blueprint_snap_to_grid,
+      absolute_snapping = source.blueprint_absolute_snapping,
+      position_relative_to_grid = source.blueprint_position_relative_to_grid,
     },
-    origin = { kind = "cursor" },
+    origin = { kind = source_kind },
   }
 end
 
