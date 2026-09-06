@@ -80,8 +80,6 @@ function M.teleport_in(player, import_data)
     if import_data.origin.kind == "cursor" then
       local pinned = game.create_inventory(1)
       local swapped = player.cursor_stack.swap_stack(pinned[1])
-      log(string.format("eb debug3: pin swap_stack=%s pinned_stack_name=%s",
-        tostring(swapped), tostring(pinned[1].valid_for_read and pinned[1].name)))
       if swapped then
         pinned_origin = { kind = "pinned_stack", inventory = pinned }
         import_data.origin = pinned_origin
@@ -156,9 +154,9 @@ function M.teleport_out(player)
   local origin = session.origin
   if origin and origin.kind == "pinned_stack" then
     local pinned_stack = origin.inventory[1]
-    local swapped = player.cursor_stack and player.cursor_stack.swap_stack(pinned_stack)
-    log(string.format("eb debug3: restore swap_stack=%s pinned_still_has=%s",
-      tostring(swapped), tostring(pinned_stack.valid_for_read and pinned_stack.name)))
+    if player.cursor_stack then
+      player.cursor_stack.swap_stack(pinned_stack)
+    end
     if pinned_stack.valid_for_read then
       -- swap_stack не сработал или курсор недоступен -- роняем на землю,
       -- не теряем содержимое молча.
