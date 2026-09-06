@@ -1,16 +1,72 @@
 local M = {}
 
+local function wire_key(id_a, conn_a, id_b, conn_b)
+  if id_a > id_b or (id_a == id_b and conn_a > conn_b) then
+    id_a, conn_a, id_b, conn_b = id_b, conn_b, id_a, conn_a
+  end
+  return id_a .. ":" .. conn_a .. ":" .. id_b .. ":" .. conn_b
+end
+
 -- Чистая логика без Factorio API (ADR-0001 §6): назначает монотонный
--- internal_id каждой сущности блюпринта (не переиспользуя entity_number)
--- и индексирует тайлы по "x,y". Обязательный TDD (docs/sdlc.md, DoD п.6) --
--- тесты в spec/blueprint_io_spec.lua написаны до этой реализации.
+-- internal_id каждой сущности блюпринта (не переиспользуя entity_number),
+-- индексирует тайлы по "x,y" и строит EntityRecord.wires по internal_id
+-- (ADR-0001 §6, docs/sdlc.md "в первую очередь Phase 2 для remap").
+--
+-- BlueprintWire -- позиционный кортеж {source_entity_number,
+-- source_connector_id, target_entity_number, target_connector_id}
+-- (подтверждённый API-факт, см. phase-2-plan.md "Найденные API-факты" --
+-- расходится с формулировкой ADR-0001 §6, где поля были именованными).
+-- Не задокументировано, дублирует ли игра один провод в wires ОБЕИХ сторон
+-- или только одной -- сборка ниже устойчива к обоим случаям: каждый
+-- уникальный провод (симметричный ключ wire_key, не зависящий от того, с
+-- чьей стороны он встретился) добавляется РОВНО ОДИН РАЗ в wires каждой из
+-- двух связанных сущностей, независимо от того, был ли он в исходных данных
+-- перечислен раз или дважды.
 function M.build_import_data(bp_entities, bp_tiles)
   local entities = {}
+  local entity_number_to_internal_id = {}
   local next_internal_id = 1
   for _, bp_entity in ipairs(bp_entities) do
     local internal_id = next_internal_id
     next_internal_id = next_internal_id + 1
-    entities[internal_id] = { internal_id = internal_id, raw = bp_entity }
+    entities[internal_id] = { internal_id = internal_id, raw = bp_entity, wires = {} }
+    entity_number_to_internal_id[bp_entity.entity_number] = internal_id
+  end
+
+  local seen_wires = {}
+  for _, bp_entity in ipairs(bp_entities) do
+    if bp_entity.wires then
+      for _, wire in ipairs(bp_entity.wires) do
+        local source_number, source_connector, target_number, target_connector =
+          wire[1], wire[2], wire[3], wire[4]
+        local source_id = entity_number_to_internal_id[source_number]
+        local target_id = entity_number_to_internal_id[target_number]
+        if not source_id or not target_id then
+          error(string.format(
+            "Blueprint Editor: blueprint wire references entity_number outside the blueprint (%s -> %s)",
+            tostring(source_number), tostring(target_number)
+          ))
+        end
+        local key = wire_key(source_id, source_connector, target_id, target_connector)
+        if not seen_wires[key] then
+          seen_wires[key] = true
+          local source_wires = entities[source_id].wires
+          source_wires[#source_wires + 1] = {
+            target_internal_id = target_id,
+            this_connector_id = source_connector,
+            target_connector_id = target_connector,
+          }
+          if source_id ~= target_id then
+            local target_wires = entities[target_id].wires
+            target_wires[#target_wires + 1] = {
+              target_internal_id = source_id,
+              this_connector_id = target_connector,
+              target_connector_id = source_connector,
+            }
+          end
+        end
+      end
+    end
   end
 
   local tiles = {}

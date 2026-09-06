@@ -1,3 +1,5 @@
+_G.defines = _G.defines or { wire_connector_id = { pole_copper = 5, circuit_red = 1, circuit_green = 2 } }
+
 local blueprint_io = require("scripts.blueprint_io")
 
 describe("blueprint_io.build_import_data", function()
@@ -40,6 +42,47 @@ describe("blueprint_io.build_import_data", function()
     }
     local entities = blueprint_io.build_import_data({ bp_entity }, {})
     assert.are.equal(bp_entity, entities[1].raw)
+  end)
+
+  it("gives every entity an empty wires table when the blueprint has no wires", function()
+    local entities = blueprint_io.build_import_data({
+      { entity_number = 1, name = "iron-chest", position = { x = 0, y = 0 } },
+    }, {})
+    assert.are.same({}, entities[1].wires)
+  end)
+
+  it("builds a bidirectional wire entry from a one-sided BlueprintWire tuple", function()
+    local entities = blueprint_io.build_import_data({
+      { entity_number = 1, name = "small-electric-pole", position = { x = 0, y = 0 },
+        wires = { { 1, defines.wire_connector_id.pole_copper, 2, defines.wire_connector_id.pole_copper } } },
+      { entity_number = 2, name = "small-electric-pole", position = { x = 5, y = 0 } },
+    }, {})
+    assert.are.same({
+      { target_internal_id = 2, this_connector_id = defines.wire_connector_id.pole_copper, target_connector_id = defines.wire_connector_id.pole_copper },
+    }, entities[1].wires)
+    assert.are.same({
+      { target_internal_id = 1, this_connector_id = defines.wire_connector_id.pole_copper, target_connector_id = defines.wire_connector_id.pole_copper },
+    }, entities[2].wires)
+  end)
+
+  it("dedups when the same wire is listed on both connected entities", function()
+    local entities = blueprint_io.build_import_data({
+      { entity_number = 1, name = "small-electric-pole", position = { x = 0, y = 0 },
+        wires = { { 1, defines.wire_connector_id.pole_copper, 2, defines.wire_connector_id.pole_copper } } },
+      { entity_number = 2, name = "small-electric-pole", position = { x = 5, y = 0 },
+        wires = { { 2, defines.wire_connector_id.pole_copper, 1, defines.wire_connector_id.pole_copper } } },
+    }, {})
+    assert.are.equal(1, #entities[1].wires)
+    assert.are.equal(1, #entities[2].wires)
+  end)
+
+  it("errors on a wire referencing an entity_number outside the blueprint", function()
+    assert.has_error(function()
+      blueprint_io.build_import_data({
+        { entity_number = 1, name = "small-electric-pole", position = { x = 0, y = 0 },
+          wires = { { 1, defines.wire_connector_id.pole_copper, 99, defines.wire_connector_id.pole_copper } } },
+      }, {})
+    end)
   end)
 end)
 
