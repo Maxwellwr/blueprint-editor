@@ -76,9 +76,24 @@ function M.teleport_in(player, import_data)
     return false
   end
 
+  -- Освобождаем курсор игрока для свободного облёта -- держать в руках
+  -- реальный blueprint внутри редактора мешает (нативный превью-режим
+  -- размещения путается под ногами, попытка клика роняет
+  -- "Невозможно построить в неизведанной области"). Обычный (инвентарный)
+  -- blueprint прячем в скрытый инвентарь (ADR-0001 §8(b).3) и вернём при
+  -- выходе. Blueprint из Blueprint Library (`cursor_record`) восстановить
+  -- программно нельзя -- `cursor_record` read-only, API не даёт способа
+  -- заново прикрепить LuaRecord к курсору -- поэтому просто чистим курсор
+  -- (то же самое действие, что игрок и так делает через `Q`); сама запись
+  -- остаётся целой в библиотеке, сообщение об этом -- при выходе.
   if import_data then
-    -- Blueprint остаётся у игрока в руке нетронутым -- Phase 1 только читает
-    -- его данные, ничего не перекладывает (см. phase-1-plan.md, Задача 2).
+    if import_data.origin.kind == "cursor" then
+      local pinned = game.create_inventory(1)
+      player.cursor_stack.swap_stack(pinned[1])
+      import_data.origin = { kind = "pinned_stack", inventory = pinned }
+    elseif import_data.origin.kind == "cursor_record" then
+      player.clear_cursor()
+    end
   elseif player.clear_cursor() then
     player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
   else
@@ -111,11 +126,24 @@ function M.teleport_out(player)
     end
   end
 
-  -- Чистим только свой инструмент ("new"-режим); blueprint игрока (edit-режим)
-  -- никогда не трогаем -- фаза read-only, курсор не наш (docs/phases/phase-1-plan.md, Задача 2).
-  local cursor_stack = player.cursor_stack
-  if cursor_stack and cursor_stack.valid_for_read and cursor_stack.name == "eb-cursor-tool" then
-    cursor_stack.clear()
+  local origin = session.origin
+  if origin and origin.kind == "pinned_stack" then
+    if player.cursor_stack then
+      player.cursor_stack.swap_stack(origin.inventory[1])
+    else
+      -- Редкий крайний случай (игрок стал spectator и т.п.) -- не теряем
+      -- blueprint молча, роняем на землю рядом.
+      player.surface.spill_item_stack{ position = player.position, stack = origin.inventory[1], enable_looted = true }
+    end
+    origin.inventory.destroy()
+  elseif origin and origin.kind == "cursor_record" then
+    player.print({"", "Blueprint Editor: your Blueprint Library blueprint stayed in the library -- select it again if you need it in hand."})
+  else
+    -- "new"-режим: чистим только свой инструмент, не что попало в курсоре.
+    local cursor_stack = player.cursor_stack
+    if cursor_stack and cursor_stack.valid_for_read and cursor_stack.name == "eb-cursor-tool" then
+      cursor_stack.clear()
+    end
   end
 
   state.clear_session(player.index)
