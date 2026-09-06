@@ -22,9 +22,9 @@ function M.dump_session(command)
   -- Дампим entities/tiles отдельно от всей session -- Session также содержит
   -- LuaObject-поля (pre_edit.character, origin.inventory, render_ids), для
   -- которых serpent.block не даёт читаемого вывода и которые не нужны для
-  -- DoD-теста (wire bookkeeping смотрится только в entities). Временно, вместе
-  -- с остальным playtest-логированием (см. scripts/input.lua) -- убрать перед
-  -- закрытием фазы.
+  -- DoD-теста (wire bookkeeping смотрится только в entities). Постоянное
+  -- решение, не часть временного playtest-логирования -- найдено при
+  -- финальном ревью Phase 2 (Minor: "session целиком слишком шумный лог").
   log(serpent.block(session.entities, { name = "session.entities" }))
   log(serpent.block(session.tiles, { name = "session.tiles" }))
   player.print({"", "Blueprint Editor: session dumped to the log."})
