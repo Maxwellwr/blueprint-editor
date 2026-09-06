@@ -123,6 +123,16 @@ function M.tile_key(x, y)
   return string.format("%d,%d", x, y)
 end
 
+-- Общий паттерн place_tile/find_tile_at: мировая позиция -> локальные
+-- координаты -> ключ клетки. place_tile дополнительно нужны сами coords (для
+-- raw.position), поэтому возвращает их вторым значением; find_tile_at нужен
+-- только ключ.
+local function tile_key_at(session, world_position)
+  local local_position = M.to_local_position(session, world_position)
+  local coords = M.tile_coordinates(local_position)
+  return M.tile_key(coords.x, coords.y), coords
+end
+
 -- Первая сущность, чей footprint (tile_width/tile_height вокруг raw.position,
 -- то же правило центрирования, что и snap_position) содержит world_position.
 -- Коллизии не проверяются при размещении (см. "Область фазы") -- при
@@ -158,9 +168,7 @@ function M.place_tile(session, name, world_position)
   if not prototypes.tile[name] then
     error(string.format("Blueprint Editor: unknown tile prototype '%s'", name))
   end
-  local local_position = M.to_local_position(session, world_position)
-  local coords = M.tile_coordinates(local_position)
-  local key = M.tile_key(coords.x, coords.y)
+  local key, coords = tile_key_at(session, world_position)
   session.tiles[key] = { raw = { name = name, position = coords } }
   return key
 end
@@ -177,9 +185,7 @@ end
 -- Тайлы всегда занимают ровно одну клетку -- в отличие от find_entity_at,
 -- никакого footprint-перебора не нужно, прямое попадание по ключу клетки.
 function M.find_tile_at(session, world_position)
-  local local_position = M.to_local_position(session, world_position)
-  local coords = M.tile_coordinates(local_position)
-  local key = M.tile_key(coords.x, coords.y)
+  local key = tile_key_at(session, world_position)
   if session.tiles[key] then
     return key
   end

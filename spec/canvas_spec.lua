@@ -1,4 +1,5 @@
 local canvas = require("scripts.canvas")
+local blueprint_io = require("scripts.blueprint_io")
 
 describe("canvas.snap_position", function()
   it("centers odd-sized entities on the tile center", function()
@@ -112,5 +113,13 @@ describe("canvas.tile_key", function()
 
   it("formats negative coordinates without losing the sign", function()
     assert.are.equal("-4,-1", canvas.tile_key(-4, -1))
+  end)
+
+  it("matches the key blueprint_io.build_import_data actually produces for the same tile", function()
+    local _, tiles = blueprint_io.build_import_data({}, {
+      { name = "concrete", position = { x = -4, y = -1 } },
+    })
+    local imported_key = next(tiles)
+    assert.are.equal(canvas.tile_key(-4, -1), imported_key)
   end)
 end)

@@ -14,7 +14,11 @@ local ENTITY_RENDER_WARN_THRESHOLD = 2000
 -- Тот же принцип, что ENTITY_RENDER_WARN_THRESHOLD (docs/sdlc.md, "Явный
 -- бюджет производительности") -- Phase 1 рисовала тайлы батчем без явного
 -- порога; закрывается вместе с переходом draw_tiles на поштучный паттерн.
-local TILE_RENDER_WARN_THRESHOLD = 4000
+-- Порог поднят с 4000: обычная площадка 64x64 бетона -- это уже 4096 тайлов,
+-- т.е. рутинный большой blueprint пересекал бы старый порог и обесценивал
+-- предупреждение. 10000 -- на порядок больше рутинного крупного blueprint'а,
+-- сигнализирует именно об аномально огромной сессии, а не о нормальной.
+local TILE_RENDER_WARN_THRESHOLD = 10000
 
 local M = {}
 
@@ -105,7 +109,15 @@ function M.draw_tile(session, key)
     target = { offset.x + raw.position.x - center.x + 0.5, offset.y + raw.position.y - center.y + 0.5 },
     surface = surface,
     players = { session.player_index },
-    -- слой ниже сущностей: тайлы не закрывают сущность на той же ячейке
+    -- LuaRendering.draw_sprite: render_layer по умолчанию -- "arrow" (значение
+    -- RenderLayer 190), если не задан явно (так рисовался и M.draw_entity, и
+    -- эта функция до этого фикса -- оба попадали на один и тот же слой).
+    -- Правило RenderLayer -- "higher values are rendered above lower values"
+    -- (абсолютное, а не tie-break при равенстве), подтверждено
+    -- doc-html/runtime-api.json установленной игры (Factorio 2.0.77).
+    -- "ground-layer-1" = 12 -- осмысленно названный низкий слой, ниже "arrow"
+    -- (190) и выше "above-tiles" (11), не мешает сетке/фону канваса, если у
+    -- них появится свой слой.
     render_layer = "ground-layer-1",
   }
 end

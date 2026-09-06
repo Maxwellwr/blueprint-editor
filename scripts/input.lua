@@ -92,9 +92,11 @@ local function remove_at(player_index, position)
   if kind == "entity" then
     render.clear_entity_render(session, target)
     canvas.remove_entity(session, target)
-  else
+  elseif kind == "tile" then
     render.clear_tile_render(session, target)
     canvas.remove_tile(session, target)
+  else
+    error(string.format("Blueprint Editor: unknown removal target kind '%s'", tostring(kind)))
   end
 end
 
@@ -191,7 +193,7 @@ local function cycle_palette(event, delta)
     current_index = ((current_index - 1 + delta) % #PALETTE_ITEMS) + 1
     local candidate = PALETTE_ITEMS[current_index]
     if is_placeable(candidate) then
-      session.selected_palette_item = candidate
+      session.selected_palette_item = { kind = candidate.kind, name = candidate.name }
       player.print({"", "Blueprint Editor: selected " .. candidate.name})
       return
     end
