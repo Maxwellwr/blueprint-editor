@@ -68,6 +68,16 @@ function M.on_player_selected_area(event)
     return
   end
   local world_position = area_center(event.area)
+  -- Не полноценная collision-детекция (см. phase-2-plan.md "Область фазы" --
+  -- сознательно вне scope этой фазы), а точечная защита от самого частого
+  -- случая, найденного playtest'ом: повторный клик в ту же уже занятую
+  -- клетку молча ставил вторую сущность поверх первой. find_entity_at уже
+  -- использует ту же локальную позицию, что place_entity сейчас снапнет.
+  if canvas.find_entity_at(session, world_position) then
+    eb_log("on_player_selected_area: position already occupied, skipping placement")
+    game.get_player(event.player_index).print({"", "Blueprint Editor: position already occupied."})
+    return
+  end
   local internal_id = canvas.place_entity(session, session.selected_palette_item, world_position, 0)
   render.draw_entity(session, internal_id)
   local raw = session.entities[internal_id].raw
