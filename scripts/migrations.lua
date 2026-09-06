@@ -20,6 +20,16 @@ M.steps = {
       end
     end,
   },
+  {
+    version = "0.3.0",
+    fn = function()
+      for _, session in state.each_session() do
+        for _, entity in pairs(session.entities) do
+          entity.wires = entity.wires or {}
+        end
+      end
+    end,
+  },
 }
 
 local function parse_version(version)
