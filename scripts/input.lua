@@ -34,6 +34,19 @@ local function palette_index(name)
   return nil
 end
 
+-- Общий паттерн для eb-rotate/eb-delete/eb-pick-entity/alt-select (найдено
+-- code review Phase 2 -- было продублировано 4 раза): найти сессию игрока,
+-- затем сущность на указанной позиции. nil, nil, если сессии нет; session,
+-- nil, если сессия есть, но сущность не найдена -- вызывающая сторона решает,
+-- что делать в каждом случае.
+local function get_session_and_entity(player_index, position)
+  local session = state.get_session(player_index)
+  if not session then
+    return nil, nil
+  end
+  return session, canvas.find_entity_at(session, position)
+end
+
 local M = {}
 
 -- Primary select (клик/драг с eb-cursor-tool) -- размещение. event.entities
@@ -57,8 +70,13 @@ function M.on_player_selected_area(event)
   -- Не полноценная collision-детекция (см. phase-2-plan.md "Область фазы" --
   -- сознательно вне scope этой фазы), а точечная защита от самого частого
   -- случая, найденного playtest'ом: повторный клик в ту же уже занятую
-  -- клетку молча ставил вторую сущность поверх первой. find_entity_at уже
-  -- использует ту же локальную позицию, что place_entity сейчас снапнет.
+  -- клетку молча ставил вторую сущность поверх первой. Проверяет только
+  -- попадание точки клика в footprint УЖЕ стоящей сущности -- не сравнивает
+  -- его с footprint'ом размещаемой (найдено code review Phase 2): разные по
+  -- размеру сущности всё ещё могут наложиться друг на друга, если клик
+  -- пришёлся рядом, а не точно на существующую. Полноценная проверка
+  -- пересечения footprint'ов осознанно отложена вместе с остальной
+  -- collision-детекцией.
   if canvas.find_entity_at(session, world_position) then
     game.get_player(event.player_index).print({"", "Blueprint Editor: position already occupied."})
     return
@@ -72,12 +90,8 @@ function M.on_player_alt_selected_area(event)
   if event.item ~= "eb-cursor-tool" then
     return
   end
-  local session = state.get_session(event.player_index)
-  if not session then
-    return
-  end
-  local internal_id = canvas.find_entity_at(session, area_center(event.area))
-  if not internal_id then
+  local session, internal_id = get_session_and_entity(event.player_index, area_center(event.area))
+  if not session or not internal_id then
     return
   end
   render.clear_entity_render(session, internal_id)
@@ -85,12 +99,8 @@ function M.on_player_alt_selected_area(event)
 end
 
 function M.on_rotate(event)
-  local session = state.get_session(event.player_index)
-  if not session then
-    return
-  end
-  local internal_id = canvas.find_entity_at(session, event.cursor_position)
-  if not internal_id then
+  local session, internal_id = get_session_and_entity(event.player_index, event.cursor_position)
+  if not session or not internal_id then
     return
   end
   if canvas.rotate_entity(session, internal_id, 1) then
@@ -100,12 +110,8 @@ function M.on_rotate(event)
 end
 
 function M.on_delete(event)
-  local session = state.get_session(event.player_index)
-  if not session then
-    return
-  end
-  local internal_id = canvas.find_entity_at(session, event.cursor_position)
-  if not internal_id then
+  local session, internal_id = get_session_and_entity(event.player_index, event.cursor_position)
+  if not session or not internal_id then
     return
   end
   render.clear_entity_render(session, internal_id)
@@ -113,12 +119,8 @@ function M.on_delete(event)
 end
 
 function M.on_pick_entity(event)
-  local session = state.get_session(event.player_index)
-  if not session then
-    return
-  end
-  local internal_id = canvas.find_entity_at(session, event.cursor_position)
-  if not internal_id then
+  local session, internal_id = get_session_and_entity(event.player_index, event.cursor_position)
+  if not session or not internal_id then
     return
   end
   session.selected_palette_item = session.entities[internal_id].raw.name
@@ -160,7 +162,7 @@ end
 -- on_player_cursor_stack_changed while a session is active" -- защита от
 -- случайной потери инструмента (Q/скролл/дроп). Проверка ТЕКУЩЕГО стека
 -- перед записью обязательна: on_player_cursor_stack_changed фирится и на
--- собственную script-запись (тот же тик, докемументировано как "not
+-- собственную script-запись (тот же тик, задокументировано как "not
 -- instantly"), без этой проверки -- бесконечный цикл событий. Подтверждено
 -- playtest'ом Phase 2: ванильное действие Q само чистит курсор, из-за чего
 -- этот обработчик срабатывает вслед за каждым промахом Q -- безобидно,
@@ -180,6 +182,10 @@ function M.on_cursor_stack_changed(event)
   end
   if player.clear_cursor() then
     cursor_stack.set_stack({ name = "eb-cursor-tool" })
+  else
+    -- Найдено code review Phase 2: аналогичный случай в surface.lua
+    -- (teleport_in) сообщает игроку, а этот путь молчал.
+    player.print({"", "Blueprint Editor: could not re-equip the cursor tool (cursor full)."})
   end
 end
 
