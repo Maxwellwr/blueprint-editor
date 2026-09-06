@@ -117,12 +117,10 @@ function M.teleport_in(player, import_data)
     return false
   end
 
-  if not import_data then
-    if player.clear_cursor() then
-      player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
-    else
-      player.print({"", "Blueprint Editor: could not equip the cursor tool (cursor full) -- entered editor without it."})
-    end
+  if player.clear_cursor() then
+    player.cursor_stack.set_stack({ name = "eb-cursor-tool" })
+  else
+    player.print({"", "Blueprint Editor: could not equip the cursor tool (cursor full) -- entered editor without it."})
   end
 
   state.start_session(player.index, pre_edit, canvas_offset, import_data)
