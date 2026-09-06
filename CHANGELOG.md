@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-06
+
+Phase 2 — Add/remove/rotate entities + entity_number/wire bookkeeping.
+
+### Добавлено
+
+- `scripts/canvas.lua` — мутационное API (`place_entity`/`remove_entity`/`rotate_entity`/`find_entity_at`), чистая логика с TDD (`snap_position`, `next_direction`, `remove_wire_references`, `to_local_position`).
+- `scripts/blueprint_io.lua` — `build_import_data` строит `EntityRecord.wires` из `BlueprintEntity.wires` при импорте (двунаправленно, с дедупликацией).
+- `scripts/input.lua` — обработчики размещения/удаления/поворота/подбора/цикла ad-hoc палитры (7 жёстко зашитых типов), переэкипировка `eb-cursor-tool`.
+- `scripts/rendering.lua` — `draw_entity`/`clear_entity_render` (поштучный рендер без полной перерисовки сессии).
+- `scripts/debug.lua` — команда `eb-dump-session`.
+- 5 новых custom-input (`eb-rotate`/`eb-delete`/`eb-pick-entity`/`eb-cycle-palette-next`/`eb-cycle-palette-prev`) + `reverse_select` на `eb-cursor-tool` (удаление правым кликом).
+- `scripts/state.lua` — `Session.selected_palette_item`, миграция `0.3.0` (backfill `EntityRecord.wires`).
+- `busted`: +14 тестов (25/25 всего) — `spec/canvas_spec.lua` (новый), `spec/blueprint_io_spec.lua` (расширен).
+
+### Исправлено
+
+- `eb-cursor-tool` экипируется и в edit-режиме, не только в "new" (Phase 1 экипировала только для пустого канваса).
+- Иконка `eb-cursor-tool` заменена с `blueprint.png` на `copy-paste-tool.png` — игрок не мог отличить инструмент редактора от настоящего чертежа в руке.
+- Округление `blueprint_center` до целого — импортированные сущности выравнены по видимой сетке (была систематическая ошибка на дробную величину).
+- Точечная защита от размещения нескольких сущностей в одной уже занятой клетке (не полноценная collision-детекция, см. известные ограничения в `phase-2-implementation.md`).
+- `teleport_out` больше не пытается «уронить» `eb-cursor-tool` при выходе из edit-режима (курсор явно чистится перед восстановлением запиненного чертежа).
+
+См. [`docs/phases/phase-2-implementation.md`](docs/phases/phase-2-implementation.md) для полного списка решений, найденных фактов и известных ограничений.
+
 ## [0.2.1] — 2026-09-06
 
 Патч к Phase 1: снятие ограничения Blueprint Library, освобождение курсора в редакторе.
