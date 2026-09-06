@@ -42,10 +42,32 @@ function M.draw_grid(session)
   session.render_ids.grid = ids
 end
 
-function M.draw_entities(session)
+function M.draw_entity(session, internal_id)
   local surface = canvas_surface()
   local offset = session.canvas_offset
+  local center = session.blueprint_center
+  local record = session.entities[internal_id]
+  local raw = record.raw
+  local orientation = 0
+  if raw.direction then
+    -- Factorio 2.0: direction в 1/16 оборота; orientation LuaRendering -- доля оборота (0..1).
+    orientation = raw.direction / 16
+  end
+  local sprite = "entity/" .. raw.name
+  if not helpers.is_valid_sprite_path(sprite) then
+    log(string.format("Blueprint Editor: no sprite for entity '%s' (mod not installed?) -- using placeholder icon.", raw.name))
+    sprite = "utility/missing_icon"
+  end
+  session.render_ids.entities[internal_id] = rendering.draw_sprite{
+    sprite = sprite,
+    target = { offset.x + raw.position.x - center.x, offset.y + raw.position.y - center.y },
+    orientation = orientation,
+    surface = surface,
+    players = { session.player_index },
+  }
+end
 
+function M.draw_entities(session)
   local count = 0
   for _ in pairs(session.entities) do
     count = count + 1
@@ -56,27 +78,8 @@ function M.draw_entities(session)
       count, ENTITY_RENDER_WARN_THRESHOLD
     ))
   end
-
-  local center = session.blueprint_center
-  for internal_id, record in pairs(session.entities) do
-    local raw = record.raw
-    local orientation = 0
-    if raw.direction then
-      -- Factorio 2.0: direction в 1/16 оборота; orientation LuaRendering -- доля оборота (0..1).
-      orientation = raw.direction / 16
-    end
-    local sprite = "entity/" .. raw.name
-    if not helpers.is_valid_sprite_path(sprite) then
-      log(string.format("Blueprint Editor: no sprite for entity '%s' (mod not installed?) -- using placeholder icon.", raw.name))
-      sprite = "utility/missing_icon"
-    end
-    session.render_ids.entities[internal_id] = rendering.draw_sprite{
-      sprite = sprite,
-      target = { offset.x + raw.position.x - center.x, offset.y + raw.position.y - center.y },
-      orientation = orientation,
-      surface = surface,
-      players = { session.player_index },
-    }
+  for internal_id in pairs(session.entities) do
+    M.draw_entity(session, internal_id)
   end
 end
 
@@ -109,6 +112,14 @@ local function destroy_ids(ids)
       render_object:destroy()
     end
   end
+end
+
+function M.clear_entity_render(session, internal_id)
+  local render_object = session.render_ids.entities[internal_id]
+  if render_object and render_object.valid then
+    render_object:destroy()
+  end
+  session.render_ids.entities[internal_id] = nil
 end
 
 function M.clear_session_renders(session)
