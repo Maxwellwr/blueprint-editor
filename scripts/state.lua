@@ -51,6 +51,7 @@ function M.start_session(player_index, pre_edit, canvas_offset, import_data)
     label = import_data and import_data.label or nil,
     icons = import_data and import_data.icons or nil,
     blueprint_snap = import_data and import_data.blueprint_snap or nil,
+    selected_palette_item = nil,
   }
   storage.sessions[player_index] = session
   return session
