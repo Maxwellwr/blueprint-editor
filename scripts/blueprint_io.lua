@@ -57,11 +57,16 @@ end
 -- API-факт (Phase 1, патч 0.2.1): blueprint, перетащенный прямо из игровой
 -- Blueprint Library, попадает в `player.cursor_record` (LuaRecord), а не в
 -- `player.cursor_stack` (LuaItemStack) -- последний в этом случае читается
--- как невалидный (`valid_for_read = false`). LuaRecord даёт тот же набор
--- полей/методов (`get_blueprint_entities`, `get_blueprint_tiles`, `label`,
--- `preview_icons`, `blueprint_snap_to_grid`, ...), поэтому оба источника
--- читаются единообразно ниже. Это отменяет известное ограничение из
--- phase-1-implementation.md ("перенос из Blueprint Library не работает").
+-- как невалидный (`valid_for_read = false`). `get_blueprint_entities()`/
+-- `get_blueprint_tiles()` есть на обоих типах -- этого достаточно для
+-- рендера и отменяет известное ограничение из phase-1-implementation.md
+-- ("перенос из Blueprint Library не работает"). Метаданные (`label`,
+-- `preview_icons`, snap-настройки) для LuaRecord НЕ читаем: документация
+-- по составу его полей дважды дала противоречивые сведения (в т.ч. ложно
+-- утверждала наличие `label`, которого в реальности нет -- падение
+-- подтверждено в игре), а Phase 1 эти поля всё равно нигде не использует.
+-- Уточнить точный набор полей LuaRecord, когда они реально понадобятся
+-- (Phase 4, сохранение обратно).
 function M.import_from_stack(cursor_stack, cursor_record)
   local source, source_kind
   if cursor_record and cursor_record.valid and cursor_record.type == "blueprint" and cursor_record.is_blueprint_setup() then
@@ -77,18 +82,25 @@ function M.import_from_stack(cursor_stack, cursor_record)
   local entities, tiles, next_internal_id = M.build_import_data(bp_entities, bp_tiles)
   local blueprint_center = M.compute_bounding_box_center(entities, tiles)
 
+  local label, icons, blueprint_snap
+  if source_kind == "cursor" then
+    label = source.label
+    icons = source.preview_icons
+    blueprint_snap = {
+      snap_to_grid = source.blueprint_snap_to_grid,
+      absolute_snapping = source.blueprint_absolute_snapping,
+      position_relative_to_grid = source.blueprint_position_relative_to_grid,
+    }
+  end
+
   return {
     entities = entities,
     tiles = tiles,
     next_internal_id = next_internal_id,
     blueprint_center = blueprint_center,
-    label = source.label,
-    icons = source.preview_icons,
-    blueprint_snap = {
-      snap_to_grid = source.blueprint_snap_to_grid,
-      absolute_snapping = source.blueprint_absolute_snapping,
-      position_relative_to_grid = source.blueprint_position_relative_to_grid,
-    },
+    label = label,
+    icons = icons,
+    blueprint_snap = blueprint_snap,
     origin = { kind = source_kind },
   }
 end
