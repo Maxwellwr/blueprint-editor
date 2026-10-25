@@ -15,6 +15,14 @@
 //       заменить список этапов v2 целиком (пересчёт прошлого)
 //   show <issue>
 //       этапы и итоги из комментария
+//   sync <issue> [--project N] [--dry-run]
+//       пересинхронизировать числовые поля карточки issue в проекте из существующего комментария
+//
+// Итоги (`totals`) после `add`, `rewrite` и в `sync` пишутся в числовые поля карточки issue в проекте GitHub:
+// Минуты, Ходы, Вызовы инстр., Input, Output, Cache write, Cache read, Взвеш. токены. Проект — `--project N`
+// или env COST_PROJECT, по умолчанию 2; поля ищутся по имени (id не хардкодятся). Нет карточки или поля —
+// предупреждение в stderr, не падение. Поле «Модель» скрипт не трогает. --dry-run печатает и эти записи.
+// Нужен scope `project` у gh (`gh auth refresh -s project`).
 //
 // Транскрипт подагента: <проекты>/<сессия>/subagents/agent-<id>.jsonl, где <проекты> — CLAUDE_PROJECTS_DIR
 // или ~/.claude/projects/<путь корня репозитория, не-буквы → «-»>* (вместе с каталогами worktree).
@@ -34,7 +42,12 @@ import { fileURLToPath } from 'node:url'
 // {owner}/{repo} gh подставляет сам — из GH_REPO или git remote текущего каталога.
 const R = 'repos/{owner}/{repo}'
 export const V2 = /<!-- cost-report:v2\r?\n([\s\S]*?)\r?\n-->/
-export const WEIGHTS = { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 }
+export const WEIGHTS = {
+  input: 1,
+  cacheWrite: 1.25,
+  cacheRead: 0.1,
+  output: 5,
+}
 let DRY = false
 
 const fail = (m) => {
@@ -281,6 +294,85 @@ function comments(issue) {
 export function findCostComment(list) {
   return list.find((c) => V2.test(c.body ?? '')) ?? null
 }
+// ---------- поля проекта ----------
+export const FIELD_MAP = {
+  minutes: 'Минуты',
+  turns: 'Ходы',
+  toolCalls: 'Вызовы инстр.',
+  inputTokens: 'Input',
+  outputTokens: 'Output',
+  cacheCreationTokens: 'Cache write',
+  cacheReadTokens: 'Cache read',
+  weightedTokens: 'Взвеш. токены',
+}
+function graphql(query, vars = {}) {
+  const args = ['api', 'graphql', '-f', `query=${query}`]
+  for (const [k, v] of Object.entries(vars)) args.push('-f', `${k}=${v}`)
+  const out = execFileSync('gh', args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  return JSON.parse(out).data
+}
+const warn = (m) => console.error(`предупреждение: ${m}`)
+
+// Записать totals в числовые поля карточки issue; любая неудача — предупреждение, не падение.
+function syncFields(issue, totals, flags) {
+  try {
+    const projectNumber = Number(flags.project ?? process.env.COST_PROJECT ?? 2)
+    const repo = JSON.parse(
+      execFileSync('gh', ['repo', 'view', '--json', 'owner,name'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    )
+    const data = graphql(
+      'query($o:String!,$r:String!){repository(owner:$o,name:$r){issue(number:' +
+        issue +
+        '){projectItems(first:20){nodes{id project{id number}}}}}}',
+      { o: repo.owner.login, r: repo.name },
+    )
+    const item = data.repository?.issue?.projectItems?.nodes?.find(
+      (x) => x.project.number === projectNumber,
+    )
+    if (!item)
+      return warn(
+        `#${issue}: карточки в проекте №${projectNumber} нет, поля не обновлены`,
+      )
+    const fdata = graphql(
+      'query($p:ID!){node(id:$p){... on ProjectV2{fields(first:50){nodes{... on ProjectV2FieldCommon{id name}}}}}}',
+      { p: item.project.id },
+    )
+    const fields = new Map(
+      (fdata.node?.fields?.nodes ?? [])
+        .filter((f) => f.name)
+        .map((f) => [f.name, f.id]),
+    )
+    for (const [key, name] of Object.entries(FIELD_MAP)) {
+      const fieldId = fields.get(name)
+      if (!fieldId) {
+        warn(`в проекте №${projectNumber} нет поля «${name}»`)
+        continue
+      }
+      const value = Number(totals[key] ?? 0)
+      const q = `mutation($p:ID!,$i:ID!,$f:ID!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{number:${value}}}){projectV2Item{id}}}`
+      if (DRY) {
+        console.log(
+          `DRY-RUN поле «${name}» = ${value} (проект №${projectNumber}, карточка ${item.id})`,
+        )
+        continue
+      }
+      graphql(q, { p: item.project.id, i: item.id, f: fieldId })
+    }
+    if (!DRY) console.log(`#${issue}: поля проекта №${projectNumber} обновлены`)
+  } catch (e) {
+    warn(
+      `#${issue}: не удалось обновить поля проекта: ${e.stderr || e.message}`,
+    )
+  }
+}
+
 function save(issue, existing, body) {
   if (existing) write('PATCH', `${R}/issues/comments/${existing.id}`, { body })
   else write('POST', `${R}/issues/${issue}/comments`, { body })
@@ -340,6 +432,7 @@ function cmdAdd(pos, flags) {
   const d = parseComment(existing?.body) ?? { issue, stages: [] }
   d.stages.push(entry)
   save(issue, existing, renderV2(d))
+  syncFields(issue, d.totals, flags)
   console.log(
     `#${issue}: этап ${stage} — ${entry.model}, ${sum.turns} ходов, взвеш. ${n(sum.weightedTokens)}, cache read ${n(sum.cacheReadTokens)}, ${sum.minutes} мин${existing ? ' (комментарий обновлён)' : ' (новый комментарий)'}${DRY ? ' (dry-run)' : ''}`,
   )
@@ -351,7 +444,9 @@ function cmdRewrite(pos, flags) {
     readFileSync(flags['stages-file'] ?? fail('Нужен --stages-file'), 'utf8'),
   )
   const existing = findCostComment(comments(issue))
-  save(issue, existing, renderV2({ issue, stages }))
+  const data = { issue, stages }
+  save(issue, existing, renderV2(data))
+  syncFields(issue, data.totals, flags)
   console.log(
     `#${issue}: этапов v2 — ${stages.length}${DRY ? ' (dry-run)' : ''}`,
   )
@@ -368,6 +463,14 @@ function cmdShow(pos) {
     )
 }
 
+function cmdSync(pos, flags) {
+  const issue = Number(pos[0]) || fail('Нужен номер issue')
+  const existing = findCostComment(comments(issue))
+  if (!existing) return console.log(`#${issue}: нет комментария учёта`)
+  const data = parseComment(existing.body)
+  syncFields(issue, data.totals ?? sumStats(data.stages), flags)
+}
+
 function main() {
   const [cmd, ...rest] = process.argv.slice(2)
   if (!cmd || cmd === '--help' || cmd === '-h') {
@@ -381,6 +484,7 @@ function main() {
     add: cmdAdd,
     rewrite: cmdRewrite,
     show: cmdShow,
+    sync: cmdSync,
   }
   if (!cmds[cmd]) fail(`Неизвестная команда «${cmd}». Справка: --help`)
   try {
