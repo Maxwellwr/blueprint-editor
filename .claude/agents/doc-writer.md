@@ -21,7 +21,7 @@ isolation: worktree
 
 ## Коммиты, PR
 - Коммиты — Conventional Commits на английском (`docs:`, `chore:`), трейлер атрибуции — из напоминания харнесса; пуш без force.
-- PR: тело в файл в scratchpad, затем `gh pr create --base <база> --head <ветка> --title "…" --body-file <файл> [--milestone vA.B] [--label "…"]`, затем `gh project item-add` и колонка из постановки (для плана — Spec Review). Новый issue — `gh issue create --title … --body-file … --label … --milestone …`.
+- PR: тело в файл в scratchpad, затем `gh pr create --base <база> --head <ветка> --title "…" --body-file <файл> [--milestone vA.B] [--label "…"]`, затем `gh project item-add` и колонка из постановки (для плана — Spec Review); поле «Модель» карточки — твоя модель, `gh project item-edit --single-select-option-id` (id — `gh project field-list`). Новый issue — `gh issue create --title … --body-file … --label "группа/…" --milestone …` (модель — не метка, а поле проекта).
 - Трудности — комментарием в issue (формат — `agent-orchestration.md`, «Трудности исполнителей»). Merge, монитор PR и лимиты — не твои.
 
 ## Отчёт — до 10 строк, без текста документа
