@@ -3,7 +3,7 @@
 // Пишет в issue GitHub комментарий учёта с блоком `cost-report:v2` (PATCH существующего комментария
 // с этим блоком, иначе новый). Записи — через `gh api` от аккаунта, под которым залогинен `gh`
 // (репозиторий — из git remote текущего каталога или GH_REPO); --dry-run печатает их без выполнения.
-// Учёта времени, как в Gitea, у GitHub нет: минуты живут только в таблице комментария.
+// Учёта времени, как в Gitea, у GitHub нет: минуты живут в таблице комментария и в поле проекта «Минуты».
 //
 //   measure <agentId|путь.jsonl ...> [--since ISO] [--until ISO] [--json]
 //       посчитать подагентов: ходы, вызовы инструментов, input/output/cache write/cache read, взвешенные токены
@@ -305,9 +305,10 @@ export const FIELD_MAP = {
   cacheReadTokens: 'Cache read',
   weightedTokens: 'Взвеш. токены',
 }
-function graphql(query, vars = {}) {
+function graphql(query, vars = {}, numeric = []) {
   const args = ['api', 'graphql', '-f', `query=${query}`]
-  for (const [k, v] of Object.entries(vars)) args.push('-f', `${k}=${v}`)
+  for (const [k, v] of Object.entries(vars))
+    args.push(numeric.includes(k) ? '-F' : '-f', `${k}=${v}`)
   const out = execFileSync('gh', args, {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -328,44 +329,73 @@ function syncFields(issue, totals, flags) {
       }),
     )
     const data = graphql(
-      'query($o:String!,$r:String!){repository(owner:$o,name:$r){issue(number:' +
-        issue +
-        '){projectItems(first:20){nodes{id project{id number}}}}}}',
-      { o: repo.owner.login, r: repo.name },
+      'query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){projectItems(first:100){pageInfo{hasNextPage}nodes{id project{id number}}}}}}',
+      { o: repo.owner.login, r: repo.name, n: issue },
+      ['n'],
     )
-    const item = data.repository?.issue?.projectItems?.nodes?.find(
-      (x) => x.project.number === projectNumber,
-    )
+    const items = data.repository?.issue?.projectItems
+    if (items?.pageInfo?.hasNextPage)
+      throw new Error(
+        'у issue больше 100 карточек проектов, пагинация не реализована',
+      )
+    const item = items?.nodes?.find((x) => x.project.number === projectNumber)
     if (!item)
       return warn(
         `#${issue}: карточки в проекте №${projectNumber} нет, поля не обновлены`,
       )
     const fdata = graphql(
-      'query($p:ID!){node(id:$p){... on ProjectV2{fields(first:50){nodes{... on ProjectV2FieldCommon{id name}}}}}}',
+      'query($p:ID!){node(id:$p){... on ProjectV2{fields(first:100){pageInfo{hasNextPage}nodes{... on ProjectV2FieldCommon{id name dataType}}}}}}',
       { p: item.project.id },
     )
+    if (fdata.node?.fields?.pageInfo?.hasNextPage)
+      throw new Error('в проекте больше 100 полей, пагинация не реализована')
     const fields = new Map(
       (fdata.node?.fields?.nodes ?? [])
         .filter((f) => f.name)
-        .map((f) => [f.name, f.id]),
+        .map((f) => [f.name, f]),
     )
+    const mutation =
+      'mutation($p:ID!,$i:ID!,$f:ID!,$v:Float!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{number:$v}}){projectV2Item{id}}}'
+    let failed = 0
     for (const [key, name] of Object.entries(FIELD_MAP)) {
-      const fieldId = fields.get(name)
-      if (!fieldId) {
+      const field = fields.get(name)
+      if (!field) {
         warn(`в проекте №${projectNumber} нет поля «${name}»`)
+        failed++
+        continue
+      }
+      if (field.dataType !== 'NUMBER') {
+        warn(
+          `поле «${name}» имеет тип ${field.dataType}, а не NUMBER — пропущено`,
+        )
+        failed++
         continue
       }
       const value = Number(totals[key] ?? 0)
-      const q = `mutation($p:ID!,$i:ID!,$f:ID!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{number:${value}}}){projectV2Item{id}}}`
+      if (!Number.isFinite(value)) {
+        warn(`значение для «${name}» нечисловое (${totals[key]}) — пропущено`)
+        failed++
+        continue
+      }
       if (DRY) {
         console.log(
-          `DRY-RUN поле «${name}» = ${value} (проект №${projectNumber}, карточка ${item.id})`,
+          `DRY-RUN updateProjectV2ItemFieldValue поле «${name}» $v=${value} (проект №${projectNumber}, карточка ${item.id}, поле ${field.id})`,
         )
         continue
       }
-      graphql(q, { p: item.project.id, i: item.id, f: fieldId })
+      try {
+        graphql(
+          mutation,
+          { p: item.project.id, i: item.id, f: field.id, v: value },
+          ['v'],
+        )
+      } catch (e) {
+        warn(`поле «${name}»: ${e.stderr || e.message}`)
+        failed++
+      }
     }
-    if (!DRY) console.log(`#${issue}: поля проекта №${projectNumber} обновлены`)
+    if (!DRY && !failed)
+      console.log(`#${issue}: поля проекта №${projectNumber} обновлены`)
   } catch (e) {
     warn(
       `#${issue}: не удалось обновить поля проекта: ${e.stderr || e.message}`,
@@ -468,7 +498,11 @@ function cmdSync(pos, flags) {
   const existing = findCostComment(comments(issue))
   if (!existing) return console.log(`#${issue}: нет комментария учёта`)
   const data = parseComment(existing.body)
-  syncFields(issue, data.totals ?? sumStats(data.stages), flags)
+  syncFields(
+    issue,
+    data.totals ?? sumStats(data.stages.filter((x) => x.match !== 'unmatched')),
+    flags,
+  )
 }
 
 function main() {
