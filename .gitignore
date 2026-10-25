@@ -1,0 +1,4 @@
+# Локальное состояние Claude Code: worktree подагентов и личные настройки
+.claude/worktrees/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

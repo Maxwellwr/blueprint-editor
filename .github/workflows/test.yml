@@ -1,0 +1,24 @@
+name: test
+
+on:
+  push:
+    branches: [main, "phase/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Имя джобы — обязательная проверка в ruleset main (.claude/rules/github-workflow.md).
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Factorio исполняет Lua 5.2: тесты гоняются на той же версии языка,
+      # чтобы поймать конструкции 5.3+ (`//`, побитовые операторы, utf8).
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.2"
+      - uses: leafo/gh-actions-luarocks@v4
+      - name: Установить busted
+        run: luarocks install busted 2.2.0-1
+      - name: busted
+        run: busted --output=TAP
