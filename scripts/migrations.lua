@@ -40,21 +40,6 @@ M.steps = {
       end
     end,
   },
-  {
-    -- Phase 4 (phase-4-plan.md «Задача 3»): аддитивные nil-safe поля
-    -- Session.origin. Сессия с cursor_record-origin, начатая до обновления, не
-    -- помнит запись: помечаем её не writable, чтобы сохранение ушло по фолбэку
-    -- «как новый blueprint», а не писало в несуществующую ссылку.
-    version = "0.5.0",
-    fn = function()
-      for _, session in state.each_session() do
-        local origin = session.origin
-        if origin and origin.kind == "cursor_record" and origin.record == nil then
-          origin.writable = false
-        end
-      end
-    end,
-  },
 }
 
 local function parse_version(version)

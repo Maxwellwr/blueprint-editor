@@ -97,8 +97,6 @@ function M.teleport_in(player, import_data)
       -- невалидная -- не writable, сохранение уйдёт по фолбэку «как новый».
       local origin = import_data.origin
       local record_valid = origin.record ~= nil and origin.record.valid
-      log("eb playtest: S1 cursor_record after clear_cursor: record.valid=" .. tostring(record_valid) ..
-        " writable=" .. tostring(origin.writable))
       if not record_valid then
         origin.writable = false
       end
@@ -180,17 +178,26 @@ function M.teleport_out(player)
     if pinned_stack.valid_for_read then
       -- Каскад ADR-0001 §8(a).2 «курсор -> инвентарь -> земля» (phase-4-plan.md
       -- вопрос 6): swap в курсор не сработал -- пробуем инвентарь игрока.
-      -- Один шаг, общий для всех источников. player.insert принимает
-      -- LuaItemStack (ItemStackIdentification) и возвращает число вставленных;
-      -- blueprint -- один предмет, поэтому ненулевой результат = вставлен.
-      local ok, inserted = pcall(player.insert, pinned_stack)
-      log("eb playtest: return cascade insert ok=" .. tostring(ok) .. " inserted=" .. tostring(inserted))
-      if ok and inserted and inserted > 0 then
-        pinned_stack.clear()
+      -- Один шаг, общий для всех источников. Без player.insert: он копирует
+      -- стек, а не переносит, и требует pcall. Берём пустой слот основного
+      -- инвентаря и меняем стеки местами (swap_stack -- перенос без копии;
+      -- find_empty_stack возвращает nil, если свободного слота нет).
+      local main_inventory = player.get_main_inventory()
+      local empty_slot = main_inventory and main_inventory.find_empty_stack()
+      if empty_slot then
+        if empty_slot.swap_stack(pinned_stack) then
+          if pinned_stack.valid_for_read then
+            -- swap вернул true, но стек не опустел: неожиданное поведение API,
+            -- fail-fast (spill здесь продублировал бы blueprint).
+            error("Blueprint Editor: swap_stack into the main inventory succeeded but the pinned stack is not empty")
+          end
+        else
+          player.print({"", "Blueprint Editor: could not move your blueprint into the inventory -- dropping it on the ground instead."})
+        end
       end
     end
     if pinned_stack.valid_for_read then
-      -- swap_stack и insert не сработали -- роняем на землю,
+      -- swap в курсор и в инвентарь не сработали -- роняем на землю,
       -- не теряем содержимое молча.
       player.surface.spill_item_stack{ position = player.position, stack = pinned_stack, enable_looted = true }
     end
