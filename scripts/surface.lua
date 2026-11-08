@@ -97,6 +97,8 @@ function M.teleport_in(player, import_data)
       -- невалидная -- не writable, сохранение уйдёт по фолбэку «как новый».
       local origin = import_data.origin
       local record_valid = origin.record ~= nil and origin.record.valid
+      log("eb playtest: S1 cursor_record after clear_cursor: record.valid=" .. tostring(record_valid) ..
+        " writable=" .. tostring(origin.writable))
       if not record_valid then
         origin.writable = false
       end
@@ -184,6 +186,8 @@ function M.teleport_out(player)
       -- find_empty_stack возвращает nil, если свободного слота нет).
       local main_inventory = player.get_main_inventory()
       local empty_slot = main_inventory and main_inventory.find_empty_stack()
+      log("eb playtest: return cascade main_inventory=" .. tostring(main_inventory ~= nil) ..
+        " empty_slot=" .. tostring(empty_slot ~= nil))
       if empty_slot then
         if empty_slot.swap_stack(pinned_stack) then
           if pinned_stack.valid_for_read then
