@@ -81,7 +81,8 @@ function M.teleport_in(player, import_data)
       local pinned = game.create_inventory(1)
       local swapped = player.cursor_stack.swap_stack(pinned[1])
       if swapped then
-        pinned_origin = { kind = "pinned_stack", inventory = pinned }
+        -- page_path (книга) переносим из origin, собранного import_from_stack.
+        pinned_origin = { kind = "pinned_stack", inventory = pinned, page_path = import_data.origin.page_path }
         import_data.origin = pinned_origin
       else
         -- swap_stack не сработал -- НЕ уничтожаем pinned (он всё равно пуст,
@@ -91,6 +92,16 @@ function M.teleport_in(player, import_data)
       end
     elseif import_data.origin.kind == "cursor_record" then
       player.clear_cursor()
+      -- Спайк S1 (phase-4-plan.md): переживает ли LuaRecord clear_cursor.
+      -- Ссылка остаётся в origin.record (Session кладётся в storage);
+      -- невалидная -- не writable, сохранение уйдёт по фолбэку «как новый».
+      local origin = import_data.origin
+      local record_valid = origin.record ~= nil and origin.record.valid
+      log("eb playtest: S1 cursor_record after clear_cursor: record.valid=" .. tostring(record_valid) ..
+        " writable=" .. tostring(origin.writable))
+      if not record_valid then
+        origin.writable = false
+      end
     end
   end
 
@@ -167,7 +178,19 @@ function M.teleport_out(player)
       player.cursor_stack.swap_stack(pinned_stack)
     end
     if pinned_stack.valid_for_read then
-      -- swap_stack не сработал или курсор недоступен -- роняем на землю,
+      -- Каскад ADR-0001 §8(a).2 «курсор -> инвентарь -> земля» (phase-4-plan.md
+      -- вопрос 6): swap в курсор не сработал -- пробуем инвентарь игрока.
+      -- Один шаг, общий для всех источников. player.insert принимает
+      -- LuaItemStack (ItemStackIdentification) и возвращает число вставленных;
+      -- blueprint -- один предмет, поэтому ненулевой результат = вставлен.
+      local ok, inserted = pcall(player.insert, pinned_stack)
+      log("eb playtest: return cascade insert ok=" .. tostring(ok) .. " inserted=" .. tostring(inserted))
+      if ok and inserted and inserted > 0 then
+        pinned_stack.clear()
+      end
+    end
+    if pinned_stack.valid_for_read then
+      -- swap_stack и insert не сработали -- роняем на землю,
       -- не теряем содержимое молча.
       player.surface.spill_item_stack{ position = player.position, stack = pinned_stack, enable_looted = true }
     end
@@ -180,7 +203,13 @@ function M.teleport_out(player)
       origin.inventory.destroy()
     end
   elseif origin and origin.kind == "cursor_record" then
-    player.print({"", "Blueprint Editor: your Blueprint Library blueprint stayed in the library -- select it again if you need it in hand."})
+    -- Заготовка (phase-4-plan.md «Задача 3»): origin.record_updated ставит
+    -- save_back_to_record (Задача 4) после успешной записи в запись.
+    if origin.record_updated then
+      player.print({"", "Blueprint Editor: your Blueprint Library blueprint was updated in place."})
+    else
+      player.print({"", "Blueprint Editor: your Blueprint Library blueprint stayed in the library -- select it again if you need it in hand."})
+    end
   else
     -- "new"-режим: чистим только свой инструмент, не что попало в курсоре.
     local cursor_stack = player.cursor_stack

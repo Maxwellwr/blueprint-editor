@@ -280,18 +280,47 @@ local function unwrap_actual_blueprint(player, cursor_stack, cursor_record)
   if not (stack and stack.valid_for_read) then
     return nil, nil
   end
+  -- page_path -- active_index каждой пройденной книги, от внешней к внутренней:
+  -- ссылку на сам LuaItemStack страницы хранить нельзя (книгу прячут в
+  -- mod-owned инвентарь swap_stack'ом), а путь индексов позволяет найти ту же
+  -- страницу в запиненной книге при сохранении (phase-4-plan.md «Задача 3»,
+  -- вопрос 3).
+  local page_path = {}
   while stack and stack.valid_for_read and stack.is_blueprint_book do
     local main_inventory = stack.get_inventory(defines.inventory.item_main)
     if not main_inventory then
       return nil, nil
     end
+    page_path[#page_path + 1] = stack.active_index
     stack = main_inventory[stack.active_index]
   end
   if stack and stack.valid_for_read and stack.is_blueprint and stack.is_blueprint_setup() then
-    return stack, "cursor"
+    return stack, "cursor", page_path
   end
 
   return nil, nil
+end
+
+-- Чистая логика без Factorio API (phase-4-plan.md «Задача 3»): Session.origin
+-- для исходника импорта. Для записи библиотеки -- сама запись и writable
+-- (valid_for_write: false для превью и полки «My blueprints», API-факт 2
+-- плана); поля аддитивны и nil-safe, код сохранения обязан читать
+-- origin.record == nil как «писать нельзя, сохранить как новый». Для
+-- инвентарного blueprint'а -- page_path пройденных книг (nil, если исходник не
+-- в книге). `valid` проверяется здесь же: невалидная ссылка = не writable.
+function M.build_origin(source_kind, source, page_path)
+  if source_kind == "cursor_record" then
+    return {
+      kind = "cursor_record",
+      record = source,
+      writable = (source.valid and source.valid_for_write) and true or false,
+    }
+  end
+  local origin = { kind = source_kind }
+  if page_path and #page_path > 0 then
+    origin.page_path = page_path
+  end
+  return origin
 end
 
 -- API-факт (проверено lua-api.factorio.com перед написанием кода): свойство
@@ -303,17 +332,12 @@ end
 -- Blueprint Library, попадает в `player.cursor_record` (LuaRecord), а не в
 -- `player.cursor_stack` (LuaItemStack) -- последний в этом случае читается
 -- как невалидный (`valid_for_read = false`). `get_blueprint_entities()`/
--- `get_blueprint_tiles()` есть на обоих типах -- этого достаточно для
--- рендера и отменяет известное ограничение из phase-1-implementation.md
--- ("перенос из Blueprint Library не работает"). Метаданные (`label`,
--- `preview_icons`, snap-настройки) для LuaRecord НЕ читаем: документация
--- по составу его полей дважды дала противоречивые сведения (в т.ч. ложно
--- утверждала наличие `label`, которого в реальности нет -- падение
--- подтверждено в игре), а Phase 1 эти поля всё равно нигде не использует.
--- Уточнить точный набор полей LuaRecord, когда они реально понадобятся
--- (Phase 4, сохранение обратно).
+-- `get_blueprint_tiles()` есть на обоих типах. Метаданные записи: `label`
+-- НЕ читаем (у LuaRecord его нет в 2.0.77 -- падение подтверждено в игре; в
+-- установленной 2.1.24 он есть), `preview_icons` и snap-поля -- читаем
+-- (Phase 4, phase-4-plan.md «Задача 3»).
 function M.import_from_stack(player, cursor_stack, cursor_record)
-  local source, source_kind = unwrap_actual_blueprint(player, cursor_stack, cursor_record)
+  local source, source_kind, page_path = unwrap_actual_blueprint(player, cursor_stack, cursor_record)
   if not source then
     return nil
   end
@@ -343,6 +367,18 @@ function M.import_from_stack(player, cursor_stack, cursor_record)
       absolute_snapping = source.blueprint_absolute_snapping,
       position_relative_to_grid = source.blueprint_position_relative_to_grid,
     }
+  elseif source_kind == "cursor_record" then
+    -- Phase 4: поля записи нужны сохранению (метаданные переносятся с
+    -- исходника как есть). preview_icons и три snap-поля у LuaRecord есть и в
+    -- 2.0.77, и в 2.1.24. `label` НЕ читаем: в 2.0.77 его у LuaRecord нет
+    -- (крашило Phase 1), в 2.1.24 появился -- читать нельзя, пока нужна
+    -- совместимость с обеими версиями.
+    icons = source.preview_icons
+    blueprint_snap = {
+      snap_to_grid = source.blueprint_snap_to_grid,
+      absolute_snapping = source.blueprint_absolute_snapping,
+      position_relative_to_grid = source.blueprint_position_relative_to_grid,
+    }
   end
 
   return {
@@ -353,7 +389,7 @@ function M.import_from_stack(player, cursor_stack, cursor_record)
     label = label,
     icons = icons,
     blueprint_snap = blueprint_snap,
-    origin = { kind = source_kind },
+    origin = M.build_origin(source_kind, source, page_path),
   }
 end
 
