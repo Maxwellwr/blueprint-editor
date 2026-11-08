@@ -35,12 +35,23 @@ local function on_player_joined_game()
   end
 end
 
+-- Выход из редактора: очистка рендера и возврат игрока на исходную поверхность.
+local function exit_editor(player, session)
+  render.clear_session_renders(session)
+  surface.teleport_out(player)
+end
+
+-- Точка вызова сохранения при выходе по eb-toggle-editor (phase-4-plan.md
+-- «Задача 2»). Заглушка: реальное сохранение подключает Задача 4.
+local function save_on_exit(player, session) -- luacheck: ignore
+end
+
 local function on_toggle_editor(event)
   local player = game.get_player(event.player_index)
   local session = state.get_session(player.index)
   if session then
-    render.clear_session_renders(session)
-    surface.teleport_out(player)
+    save_on_exit(player, session)
+    exit_editor(player, session)
   else
     local import_data = blueprint_io.import_from_stack(player, player.cursor_stack, player.cursor_record)
     if surface.teleport_in(player, import_data) then
@@ -52,11 +63,21 @@ local function on_toggle_editor(event)
   end
 end
 
+-- eb-discard: выход без сохранения. Вне сессии редактора ничего не делает.
+local function on_discard_editor(event)
+  local player = game.get_player(event.player_index)
+  local session = state.get_session(player.index)
+  if session then
+    exit_editor(player, session)
+  end
+end
+
 script.on_init(on_init)
 script.on_configuration_changed(on_configuration_changed)
 script.on_load(on_load)
 script.on_event(defines.events.on_player_joined_game, on_player_joined_game)
 script.on_event("eb-toggle-editor", on_toggle_editor)
+script.on_event("eb-discard", on_discard_editor)
 script.on_event(defines.events.on_player_selected_area, input.on_player_selected_area)
 script.on_event(defines.events.on_player_alt_selected_area, input.on_player_alt_selected_area)
 script.on_event(defines.events.on_player_reverse_selected_area, input.on_player_alt_selected_area)
