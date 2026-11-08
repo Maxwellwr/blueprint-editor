@@ -14,11 +14,33 @@ jobs:
       - uses: actions/checkout@v4
       # Factorio исполняет Lua 5.2: тесты гоняются на той же версии языка,
       # чтобы поймать конструкции 5.3+ (`//`, побитовые операторы, utf8).
-      - uses: leafo/gh-actions-lua@v10
+      # Lua и luarocks — из apt (зеркала Ubuntu внутри инфраструктуры раннера),
+      # а не сборкой из исходников с lua.org, которая падала по таймауту.
+      - name: Установить Lua 5.2 и luarocks
+        run: |
+          for attempt in 1 2 3; do
+            sudo apt-get update && \
+              sudo apt-get install -y --no-install-recommends lua5.2 liblua5.2-dev luarocks && break
+            echo "apt: попытка $attempt не удалась"; sleep 10
+          done
+          lua5.2 -v
+      # Кэш дерева luarocks (busted и его зависимости) — чтобы не ходить на luarocks.org.
+      - name: Кэш luarocks
+        id: luarocks-cache
+        uses: actions/cache@v4
         with:
-          luaVersion: "5.2"
-      - uses: leafo/gh-actions-luarocks@v4
+          path: ~/.luarocks
+          key: luarocks-lua5.2-busted-2.2.0-1-${{ runner.os }}
       - name: Установить busted
-        run: luarocks install busted 2.2.0-1
+        if: steps.luarocks-cache.outputs.cache-hit != 'true'
+        run: |
+          for attempt in 1 2 3; do
+            luarocks --lua-version 5.2 install --local busted 2.2.0-1 && break
+            echo "luarocks: попытка $attempt не удалась"; sleep 10
+          done
+          test -x "$HOME/.luarocks/bin/busted"
       - name: busted
-        run: busted --output=TAP
+        run: |
+          eval "$(luarocks --lua-version 5.2 path)"
+          export PATH="$HOME/.luarocks/bin:$PATH"
+          busted --output=TAP
