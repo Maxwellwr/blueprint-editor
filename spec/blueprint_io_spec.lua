@@ -528,3 +528,38 @@ describe("blueprint_io.compute_bounding_box_center", function()
     assert.are.same({ x = 3.75, y = -143 }, center)
   end)
 end)
+
+-- phase-4-plan.md «Задача 3»: origin запоминает исходник для сохранения.
+describe("blueprint_io.build_origin", function()
+  it("remembers the record and writable flag for a library record", function()
+    local record = { valid = true, valid_for_write = true }
+    local origin = blueprint_io.build_origin("cursor_record", record, nil)
+    assert.are.equal("cursor_record", origin.kind)
+    assert.are.equal(record, origin.record)
+    assert.is_true(origin.writable)
+  end)
+
+  it("marks a read-only record (My blueprints / preview) as not writable", function()
+    local record = { valid = true, valid_for_write = false }
+    local origin = blueprint_io.build_origin("cursor_record", record, nil)
+    assert.is_false(origin.writable)
+  end)
+
+  it("treats an invalid or missing valid_for_write as not writable", function()
+    assert.is_false(blueprint_io.build_origin("cursor_record", { valid = false, valid_for_write = true }, nil).writable)
+    assert.is_false(blueprint_io.build_origin("cursor_record", { valid = true }, nil).writable)
+  end)
+
+  it("keeps the book page path for an inventory blueprint and no record", function()
+    local origin = blueprint_io.build_origin("cursor", { valid = true }, { 2, 1 })
+    assert.are.equal("cursor", origin.kind)
+    assert.are.same({ 2, 1 }, origin.page_path)
+    assert.is_nil(origin.record)
+    assert.is_nil(origin.writable)
+  end)
+
+  it("leaves page_path nil when the stack is not a book page", function()
+    local origin = blueprint_io.build_origin("cursor", {}, {})
+    assert.is_nil(origin.page_path)
+  end)
+end)

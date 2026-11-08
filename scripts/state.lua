@@ -36,6 +36,17 @@ function M.new_render_ids()
   return { grid = nil, entities = {}, tiles = {} }
 end
 
+-- Session.origin (откуда пришёл исходник; phase-4-plan.md «Задача 3»):
+--   nil                                       -- new-режим (ничего не восстанавливать);
+--   { kind = "cursor" }                       -- исходник остался в руке (swap не удался);
+--   { kind = "pinned_stack", inventory = <LuaInventory>, page_path = {i,...}? }
+--       -- blueprint спрятан в mod-owned инвентаре; page_path -- active_index
+--       -- пройденных книг (nil, если не книга);
+--   { kind = "cursor_record", record = <LuaRecord>, writable = boolean,
+--     record_updated = boolean? }
+--       -- запись Blueprint Library; writable = valid_for_write на входе;
+--       -- record/writable/page_path -- аддитивные nil-safe поля, record == nil
+--       -- читается как «писать нельзя».
 function M.start_session(player_index, pre_edit, canvas_offset, import_data)
   local session = {
     player_index = player_index,
