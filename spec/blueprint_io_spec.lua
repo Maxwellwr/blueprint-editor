@@ -341,6 +341,67 @@ describe("blueprint_io export round-trip and no-op regression (ADR-0001 §6)", f
     assert.are.equal(2, total)
   end)
 
+  -- Провода сессии как множество симметричных ключей по именам сущностей
+  -- (не по internal_id -- те после re-import перенумеровываются). Имена в
+  -- наборе должны быть уникальны, иначе ключи склеиваются.
+  local function session_wire_set_by_name(entities)
+    local set = {}
+    for _, rec in pairs(entities) do
+      for _, w in ipairs(rec.wires) do
+        local a, ca = rec.raw.name, w.this_connector_id
+        local b, cb = entities[w.target_internal_id].raw.name, w.target_connector_id
+        if a > b or (a == b and ca > cb) then
+          a, ca, b, cb = b, cb, a, ca
+        end
+        set[a .. ":" .. ca .. "|" .. b .. ":" .. cb] = true
+      end
+    end
+    return set
+  end
+
+  local function session_wire_count(entities)
+    local total = 0
+    for _, rec in pairs(entities) do total = total + #rec.wires end
+    return total
+  end
+
+  it("import(export(import(X_dup))) keeps the wire structure when the source listed wires on both sides", function()
+    local X_dup = {
+      { entity_number = 1, name = "small-electric-pole", position = { x = 0, y = 0 },
+        wires = { { 1, COPPER, 2, COPPER } } },
+      { entity_number = 2, name = "medium-electric-pole", position = { x = 5, y = 0 },
+        wires = { { 2, COPPER, 1, COPPER }, { 2, RED, 3, RED } } },
+      { entity_number = 3, name = "constant-combinator", position = { x = 2.5, y = 1 },
+        wires = { { 3, RED, 2, RED } } },
+    }
+    local first = blueprint_io.build_import_data(X_dup, {})
+    local second = blueprint_io.build_import_data(blueprint_io.export_to_entities_array(first), {})
+    assert.are.same(session_wire_set_by_name(first), session_wire_set_by_name(second))
+    assert.are.equal(4, session_wire_count(first))
+    assert.are.equal(session_wire_count(first), session_wire_count(second))
+    assert.are.same(strip_wires(X_dup), strip_wires(blueprint_io.export_to_entities_array(second)))
+  end)
+
+  it("round-trips a session with internal_id gaps after a deletion, keeping every remaining wire", function()
+    local deleted = blueprint_io.build_import_data(X, {})
+    deleted[2] = nil
+    for _, rec in pairs(deleted) do
+      local kept = {}
+      for _, w in ipairs(rec.wires) do
+        if w.target_internal_id ~= 2 then kept[#kept + 1] = w end
+      end
+      rec.wires = kept
+    end
+    local exported = blueprint_io.export_to_entities_array(deleted)
+    local reimported, _, next_id = blueprint_io.build_import_data(exported, {})
+    assert.are.same({ 1, 2, 3 }, blueprint_io.stable_entity_order(reimported))
+    assert.are.equal(4, next_id)
+    assert.are.same(session_wire_set_by_name(deleted), session_wire_set_by_name(reimported))
+    assert.are.equal(3, session_wire_count(deleted))
+    assert.are.equal(session_wire_count(deleted), session_wire_count(reimported))
+    assert.are.same(exported, blueprint_io.export_to_entities_array(reimported))
+  end)
+
   it("re-exports after deleting an entity with dense numbering and remapped wires", function()
     local entities = blueprint_io.build_import_data(X, {})
     -- Удаление сущности 2 так, как это делает canvas.remove_entity.

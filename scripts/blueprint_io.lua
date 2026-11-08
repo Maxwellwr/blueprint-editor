@@ -166,6 +166,11 @@ local EXPORT_SIZE_LOG_THRESHOLD = 2000
 -- raw.position уже в blueprint-пространстве (canvas.place_entity переводит
 -- клик через to_local_position), canvas_offset/blueprint_center в экспорте
 -- не участвуют.
+--
+-- Контракт результата: копия shallow, поэтому вложенные таблицы (position,
+-- control_behavior, tags, items...) результат ДЕЛИТ с session.entities.
+-- Результат нельзя мутировать -- только передать в set_blueprint_entities;
+-- если вызывающему нужно его менять, он копирует сам.
 function M.export_to_entities_array(session_entities)
   local order = M.stable_entity_order(session_entities)
   local export_map = {}
@@ -206,6 +211,10 @@ end
 -- TileRecord.raw (API-факт 7 плана), поэтому raw передаётся как есть, той же
 -- ссылкой. Порядок -- по position.y, затем position.x: детерминирован и не
 -- зависит от порядка `pairs` по ключам "x,y".
+--
+-- Контракт результата: элементы -- сами raw из session.tiles, результат
+-- нельзя мутировать -- только передать в set_blueprint_tiles; нужно менять --
+-- копировать на стороне вызывающего.
 function M.export_to_tiles_array(session_tiles)
   local records = {}
   for _, record in pairs(session_tiles) do
