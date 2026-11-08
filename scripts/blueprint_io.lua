@@ -333,9 +333,10 @@ end
 -- `player.cursor_stack` (LuaItemStack) -- последний в этом случае читается
 -- как невалидный (`valid_for_read = false`). `get_blueprint_entities()`/
 -- `get_blueprint_tiles()` есть на обоих типах. Метаданные записи: `label`
--- НЕ читаем (у LuaRecord его нет в 2.0.77 -- падение подтверждено в игре; в
--- установленной 2.1.24 он есть), `preview_icons` и snap-поля -- читаем
--- (Phase 4, phase-4-plan.md «Задача 3»).
+-- пока НЕ читаем: целевая версия -- 2.1.24, где у LuaRecord `label` есть
+-- (в 2.0.77 его не было -- падение Phase 1), но читать ли его -- решение
+-- плана Phase 4 (идёт перепроверка). `preview_icons` и snap-поля -- читаем
+-- (phase-4-plan.md «Задача 3»).
 function M.import_from_stack(player, cursor_stack, cursor_record)
   local source, source_kind, page_path = unwrap_actual_blueprint(player, cursor_stack, cursor_record)
   if not source then
@@ -369,10 +370,9 @@ function M.import_from_stack(player, cursor_stack, cursor_record)
     }
   elseif source_kind == "cursor_record" then
     -- Phase 4: поля записи нужны сохранению (метаданные переносятся с
-    -- исходника как есть). preview_icons и три snap-поля у LuaRecord есть и в
-    -- 2.0.77, и в 2.1.24. `label` НЕ читаем: в 2.0.77 его у LuaRecord нет
-    -- (крашило Phase 1), в 2.1.24 появился -- читать нельзя, пока нужна
-    -- совместимость с обеими версиями.
+    -- исходника как есть). Целевая версия -- 2.1.24. `label` у LuaRecord в
+    -- 2.1.24 есть, но читать его или нет -- решение плана (идёт
+    -- перепроверка); пока не читаем.
     icons = source.preview_icons
     blueprint_snap = {
       snap_to_grid = source.blueprint_snap_to_grid,
