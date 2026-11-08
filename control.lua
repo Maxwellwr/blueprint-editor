@@ -43,7 +43,9 @@ end
 
 -- Точка вызова сохранения при выходе по eb-toggle-editor (phase-4-plan.md
 -- «Задача 2»). Заглушка: реальное сохранение подключает Задача 4.
-local function save_on_exit(player, session) -- luacheck: ignore
+---@diagnostic disable-next-line: unused-local
+local function save_on_exit(player, session)
+  player.print({"", "Blueprint Editor: saving on exit is not connected yet (Phase 4)."})
 end
 
 local function on_toggle_editor(event)
@@ -69,6 +71,7 @@ local function on_discard_editor(event)
   local session = state.get_session(player.index)
   if session then
     exit_editor(player, session)
+    player.print({"", "Blueprint Editor: exited without saving."})
   end
 end
 
