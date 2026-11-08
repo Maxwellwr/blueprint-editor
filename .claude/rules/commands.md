@@ -23,6 +23,6 @@ busted spec/canvas_spec.lua   # один файл; --filter "<часть име�
 
 - Мод подключён символической ссылкой из `%APPDATA%\Factorio\mods\blueprint-editor` на рабочую копию репозитория. Ссылка указывает на один каталог: чтобы проверить ветку из worktree, владелец переключает ссылку или ветку основной копии — агент об этом напоминает при передаче playtest-чеклиста.
 - Правка `control.lua` / `scripts/*` — сохранить и перезагрузить сохранение; правка `data.lua` / `data/*` / `locale/*` / `info.json` — полный перезапуск игры.
-- Лог игры — `%APPDATA%\Factorio\factorio-current.log`. Первая строка — точная версия игры (`Factorio 2.0.77 (build …)`), по ней сверяется документация API.
+- Лог игры — `%APPDATA%\Factorio\factorio-current.log`. Первая строка — точная версия игры (`Factorio 2.1.24 (build …)`), по ней сверяется документация API.
 - `/eb-dump-session` — дамп `session.entities` и `session.tiles` текущей сессии в лог (`scripts/debug.lua`).
 - Временное playtest-логирование — `log("eb playtest: …")`, grep по префиксу `eb playtest:`.
