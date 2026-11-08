@@ -78,6 +78,153 @@ function M.build_import_data(bp_entities, bp_tiles)
   return entities, tiles, next_internal_id
 end
 
+-- Чистая логика без Factorio API (ADR-0001 §6, phase-4-plan.md «Задача 1»):
+-- детерминированный порядок сущностей для экспорта -- internal_id по
+-- возрастанию. `pairs` порядок не гарантирует, а entity_number на экспорте
+-- должен быть воспроизводим от запуска к запуску (no-op регрессия).
+function M.stable_entity_order(entities)
+  local ids = {}
+  for internal_id in pairs(entities) do
+    ids[#ids + 1] = internal_id
+  end
+  table.sort(ids)
+  return ids
+end
+
+-- Чистая логика без Factorio API (ADR-0001 §6, phase-4-plan.md «Задача 1»,
+-- вопрос 7 -- принят вариант (а)): для каждой сущности массив BlueprintWire
+-- `{own_number, this_connector_id, target_number, target_connector_id}`
+-- по export_map (internal_id -> entity_number). Возвращает таблицу
+-- internal_id -> array[BlueprintWire]; у сущности без проводов записи нет.
+--
+-- Каждый уникальный провод эмитится РОВНО ОДИН РАЗ -- на той стороне, чей
+-- entity_number меньше (при равенстве, т.е. провод сущности на саму себя, --
+-- на меньшем connector_id). Так результат не зависит от того, лежит ли провод
+-- в EntityRecord.wires обеих сторон (build_import_data кладёт в обе) или
+-- только одной (наследие, ручная сборка), и воспроизводит форму
+-- «один кортеж на провод». Решение подлежит проверке спайком S2
+-- (phase-4-plan.md «Спайки»): если игра на вставке ожидает провод в wires
+-- обеих сторон, переключение -- в этой функции (класть кортеж обеим
+-- сторонам вместо одной), тесты правятся вместе.
+--
+-- Fail-fast: target_internal_id, которого нет в entities, -- нарушение
+-- инварианта canvas.remove_wire_references, error() с обоими id.
+function M.build_export_wires(entities, export_map)
+  local wires_by_id = {}
+  local seen = {}
+  for _, internal_id in ipairs(M.stable_entity_order(entities)) do
+    local own_number = export_map[internal_id]
+    for _, wire in ipairs(entities[internal_id].wires or {}) do
+      local target_id = wire.target_internal_id
+      if not entities[target_id] then
+        error(string.format(
+          "Blueprint Editor: wire of internal_id %s references internal_id %s missing from session.entities (canvas.remove_wire_references invariant broken)",
+          tostring(internal_id), tostring(target_id)
+        ))
+      end
+      local target_number = export_map[target_id]
+      local a_number, a_connector, a_id = own_number, wire.this_connector_id, internal_id
+      local b_number, b_connector = target_number, wire.target_connector_id
+      if a_number > b_number or (a_number == b_number and a_connector > b_connector) then
+        a_number, a_connector, a_id, b_number, b_connector =
+          b_number, b_connector, target_id, a_number, a_connector
+      end
+      local key = a_number .. ":" .. a_connector .. ":" .. b_number .. ":" .. b_connector
+      if not seen[key] then
+        seen[key] = true
+        local owner_wires = wires_by_id[a_id]
+        if not owner_wires then
+          owner_wires = {}
+          wires_by_id[a_id] = owner_wires
+        end
+        owner_wires[#owner_wires + 1] = { a_number, a_connector, b_number, b_connector }
+      end
+    end
+  end
+  return wires_by_id
+end
+
+-- Явный бюджет производительности (docs/sdlc.md): экспорт -- O(N + W) без
+-- render-объектов, порог ничего не блокирует, только логирует размеры сессии
+-- для разбора по логу. Значение -- то же, что ENTITY_RENDER_WARN_THRESHOLD в
+-- scripts/rendering.lua (phase-4-plan.md, «Global Constraints»); меняются
+-- вместе. Константа продублирована, а не импортирована: blueprint_io не
+-- должен зависеть от rendering, а тот тянет state/storage.
+local EXPORT_SIZE_LOG_THRESHOLD = 2000
+
+-- Чистая логика без Factorio API (ADR-0001 §6, phase-4-plan.md «Задача 1»):
+-- array[BlueprintEntity] для set_blueprint_entities из session.entities.
+-- entity_number -- плотная нумерация 1..N в порядке stable_entity_order
+-- (самый консервативный вариант, спайк S4). Preserve-unknown-fields: shallow
+-- copy raw, перекладываются только entity_number и wires -- остальные поля
+-- (recipe, control_behavior, items, tags, mirror, quality...) уходят той же
+-- ссылкой. У импортированной сущности raw хранит entity_number и wires
+-- исходного blueprint'а -- оба обязательно перезаписываются, wires -- в nil,
+-- если проводов нет (не пустая таблица: совпадает с формой импорта и не
+-- раздувает blueprint). raw и session.entities не мутируются: сессия должна
+-- остаться валидной, если запись в предмет провалилась. Позиции не трогаются:
+-- raw.position уже в blueprint-пространстве (canvas.place_entity переводит
+-- клик через to_local_position), canvas_offset/blueprint_center в экспорте
+-- не участвуют.
+function M.export_to_entities_array(session_entities)
+  local order = M.stable_entity_order(session_entities)
+  local export_map = {}
+  for number, internal_id in ipairs(order) do
+    export_map[internal_id] = number
+  end
+  local wires_by_id = M.build_export_wires(session_entities, export_map)
+
+  local result = {}
+  local wire_count = 0
+  for number, internal_id in ipairs(order) do
+    local bp_entity = {}
+    for field, value in pairs(session_entities[internal_id].raw) do
+      bp_entity[field] = value
+    end
+    bp_entity.entity_number = number
+    local wires = wires_by_id[internal_id]
+    if wires and #wires > 0 then
+      bp_entity.wires = wires
+      wire_count = wire_count + #wires
+    else
+      bp_entity.wires = nil
+    end
+    result[number] = bp_entity
+  end
+
+  if #result > EXPORT_SIZE_LOG_THRESHOLD then
+    log(string.format(
+      "Blueprint Editor: exporting a large session (%d entities, %d wires) -- above the %d threshold",
+      #result, wire_count, EXPORT_SIZE_LOG_THRESHOLD
+    ))
+  end
+  return result
+end
+
+-- Чистая логика без Factorio API (phase-4-plan.md «Задача 1»): массив Tile
+-- для set_blueprint_tiles. Tile :: {name, position} -- ровно то, что лежит в
+-- TileRecord.raw (API-факт 7 плана), поэтому raw передаётся как есть, той же
+-- ссылкой. Порядок -- по position.y, затем position.x: детерминирован и не
+-- зависит от порядка `pairs` по ключам "x,y".
+function M.export_to_tiles_array(session_tiles)
+  local records = {}
+  for _, record in pairs(session_tiles) do
+    records[#records + 1] = record
+  end
+  table.sort(records, function(a, b)
+    local pa, pb = a.raw.position, b.raw.position
+    if pa.y ~= pb.y then
+      return pa.y < pb.y
+    end
+    return pa.x < pb.x
+  end)
+  local tiles = {}
+  for index, record in ipairs(records) do
+    tiles[index] = record.raw
+  end
+  return tiles
+end
+
 -- Чистая логика без Factorio API: центр bounding box всех сущностей и тайлов
 -- (в локальных координатах самого blueprint'а). Нужен, чтобы отрисовать
 -- содержимое чертежа так, чтобы его центр совпадал с точкой, куда
