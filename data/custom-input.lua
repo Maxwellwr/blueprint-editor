@@ -6,6 +6,13 @@ data:extend({
     consuming = "none",
   },
   {
+    -- Выход из редактора без сохранения (phase-4-plan.md «Задача 2»).
+    type = "custom-input",
+    name = "eb-discard",
+    key_sequence = "CONTROL + SHIFT + Q",
+    consuming = "none",
+  },
+  {
     type = "custom-input",
     name = "eb-rotate",
     key_sequence = "R",
