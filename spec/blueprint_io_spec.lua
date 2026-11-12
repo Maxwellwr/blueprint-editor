@@ -563,3 +563,168 @@ describe("blueprint_io.build_origin", function()
     assert.is_nil(origin.page_path)
   end)
 end)
+
+describe("blueprint_io.summarize_export", function()
+  it("counts entities, wires and tiles and flags a non-empty export", function()
+    local entities = {
+      { entity_number = 1, name = "small-electric-pole", position = { x = 0, y = 0 }, wires = { { 1, COPPER, 2, COPPER } } },
+      { entity_number = 2, name = "small-electric-pole", position = { x = 2, y = 0 } },
+    }
+    local tiles = { { name = "concrete", position = { x = 0, y = 0 } } }
+    local summary = blueprint_io.summarize_export(entities, tiles)
+    assert.are.same({ entities = 2, wires = 1, tiles = 1, empty = false, large = false }, summary)
+  end)
+
+  it("flags an export with no entities and no tiles as empty", function()
+    local summary = blueprint_io.summarize_export({}, {})
+    assert.is_true(summary.empty)
+    assert.are.equal(0, summary.entities)
+  end)
+
+  it("is not empty when only tiles are present", function()
+    assert.is_false(blueprint_io.summarize_export({}, { { name = "concrete", position = { x = 0, y = 0 } } }).empty)
+  end)
+
+  it("flags a large export above the size threshold by entities or by tiles", function()
+    local many_entities = {}
+    for n = 1, 2001 do
+      many_entities[n] = { entity_number = n, name = "iron-chest", position = { x = n, y = 0 } }
+    end
+    assert.is_true(blueprint_io.summarize_export(many_entities, {}).large)
+    local many_tiles = {}
+    for n = 1, 2001 do
+      many_tiles[n] = { name = "concrete", position = { x = n, y = 0 } }
+    end
+    assert.is_true(blueprint_io.summarize_export({}, many_tiles).large)
+    many_entities[2001] = nil
+    assert.is_false(blueprint_io.summarize_export(many_entities, {}).large)
+  end)
+end)
+
+describe("blueprint_io.choose_save_target", function()
+  it("saves a new-mode session as a new blueprint", function()
+    local target, reason = blueprint_io.choose_save_target({ mode = "new", origin = nil })
+    assert.are.equal("new", target)
+    assert.are.equal("new_mode", reason)
+  end)
+
+  it("writes back into the pinned stack for an inventory blueprint", function()
+    local target, reason = blueprint_io.choose_save_target({
+      mode = "edit",
+      origin = { kind = "pinned_stack", inventory = {}, page_path = { 2 } },
+    })
+    assert.are.equal("stack", target)
+    assert.is_nil(reason)
+  end)
+
+  it("writes into a library record that is valid and writable at save time", function()
+    local target = blueprint_io.choose_save_target({
+      mode = "edit",
+      origin = { kind = "cursor_record", record = { valid = true, valid_for_write = true }, writable = true },
+    })
+    assert.are.equal("record", target)
+  end)
+
+  it("falls back to a new blueprint when the record became invalid after entry (S1)", function()
+    local target, reason = blueprint_io.choose_save_target({
+      mode = "edit",
+      origin = { kind = "cursor_record", record = { valid = false, valid_for_write = true }, writable = true },
+    })
+    assert.are.equal("new", target)
+    assert.are.equal("record_invalid", reason)
+  end)
+
+  it("falls back to a new blueprint when the record is read-only at save time", function()
+    local target, reason = blueprint_io.choose_save_target({
+      mode = "edit",
+      origin = { kind = "cursor_record", record = { valid = true, valid_for_write = false }, writable = true },
+    })
+    assert.are.equal("new", target)
+    assert.are.equal("record_read_only", reason)
+  end)
+
+  it("reads a missing record (session from an older version) as not writable", function()
+    local target, reason = blueprint_io.choose_save_target({
+      mode = "edit",
+      origin = { kind = "cursor_record" },
+    })
+    assert.are.equal("new", target)
+    assert.are.equal("record_missing", reason)
+  end)
+
+  it("saves as a new blueprint when the source stayed in the player's hand", function()
+    local target, reason = blueprint_io.choose_save_target({ mode = "edit", origin = { kind = "cursor" } })
+    assert.are.equal("new", target)
+    assert.are.equal("source_in_hand", reason)
+  end)
+
+  it("fails fast on an unknown origin kind", function()
+    assert.has_error(function()
+      blueprint_io.choose_save_target({ mode = "edit", origin = { kind = "teleporter" } })
+    end)
+  end)
+end)
+
+describe("blueprint_io.build_save_metadata", function()
+  it("carries label, icons and the three snap fields from the session as is", function()
+    local icons = { { signal = { type = "item", name = "iron-chest" }, index = 1 } }
+    local grid = { x = 4, y = 4 }
+    local offset = { x = 1, y = 0 }
+    local metadata = blueprint_io.build_save_metadata({
+      label = "My base",
+      icons = icons,
+      blueprint_snap = { snap_to_grid = grid, absolute_snapping = true, position_relative_to_grid = offset },
+    })
+    assert.are.equal("My base", metadata.label)
+    assert.are.equal(icons, metadata.preview_icons)
+    assert.are.equal(grid, metadata.blueprint_snap_to_grid)
+    assert.is_true(metadata.blueprint_absolute_snapping)
+    assert.are.equal(offset, metadata.blueprint_position_relative_to_grid)
+  end)
+
+  it("leaves every field nil for a new-mode session without metadata", function()
+    local metadata = blueprint_io.build_save_metadata({})
+    assert.are.same({}, metadata)
+  end)
+
+  it("keeps absolute_snapping false (not nil) when the source had it disabled", function()
+    local metadata = blueprint_io.build_save_metadata({
+      blueprint_snap = { snap_to_grid = nil, absolute_snapping = false, position_relative_to_grid = nil },
+    })
+    assert.is_false(metadata.blueprint_absolute_snapping)
+    assert.is_nil(metadata.blueprint_snap_to_grid)
+  end)
+end)
+
+describe("blueprint_io.save_result_message", function()
+  local summary = { entities = 3, wires = 1, tiles = 2, empty = false, large = false }
+
+  it("reports the counts for a write back into the inventory blueprint", function()
+    local message = blueprint_io.save_result_message("stack", nil, summary)
+    assert.truthy(message:find("3 entities", 1, true))
+    assert.truthy(message:find("2 tiles", 1, true))
+  end)
+
+  it("says nothing extra for a record written in place (teleport_out reports it)", function()
+    assert.is_nil(blueprint_io.save_result_message("record", nil, summary))
+  end)
+
+  it("explains the fallback to a new blueprint by reason", function()
+    local read_only = blueprint_io.save_result_message("new", "record_read_only", summary)
+    assert.truthy(read_only:find("read-only", 1, true))
+    assert.truthy(read_only:find("new blueprint", 1, true))
+    local invalid = blueprint_io.save_result_message("new", "record_invalid", summary)
+    assert.truthy(invalid:find("no longer valid", 1, true))
+    local missing = blueprint_io.save_result_message("new", "record_missing", summary)
+    assert.truthy(missing:find("new blueprint", 1, true))
+    local in_hand = blueprint_io.save_result_message("new", "source_in_hand", summary)
+    assert.truthy(in_hand:find("hand", 1, true))
+    local new_mode = blueprint_io.save_result_message("new", "new_mode", summary)
+    assert.truthy(new_mode:find("new blueprint", 1, true))
+    assert.is_nil(new_mode:find("read-only", 1, true))
+  end)
+
+  it("fails fast on an unknown fallback reason", function()
+    assert.has_error(function() blueprint_io.save_result_message("new", "because", summary) end)
+  end)
+end)

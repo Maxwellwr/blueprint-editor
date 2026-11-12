@@ -174,8 +174,21 @@ function M.teleport_out(player)
       -- провалился, и попытается "уронить" уже ненужный eb-cursor-tool.
       -- Чистим курсор явно до swap -- восстанавливает исходное допущение
       -- "курсор пуст перед обменом".
-      player.cursor_stack.clear()
-      player.cursor_stack.swap_stack(pinned_stack)
+      --
+      -- Phase 4 (Задача 4): чистим только СВОЙ инструмент, а не что попало.
+      -- С этой фазы pinned_stack -- ещё и новый blueprint из save_new_blueprint,
+      -- в том числе при фолбэке «исходник остался в руке» (origin.kind ==
+      -- "cursor"): после восстановления character-контроллера в курсоре
+      -- лежит исходный blueprint игрока, и безусловный clear() уничтожил бы
+      -- его. Занятый чужим предметом курсор -- не swap, а следующий шаг
+      -- каскада (инвентарь), как и велит ADR-0001 §8(a).2.
+      local cursor_stack = player.cursor_stack
+      if cursor_stack.valid_for_read and cursor_stack.name == "eb-cursor-tool" then
+        cursor_stack.clear()
+      end
+      if not cursor_stack.valid_for_read then
+        cursor_stack.swap_stack(pinned_stack)
+      end
     end
     if pinned_stack.valid_for_read then
       -- Каскад ADR-0001 §8(a).2 «курсор -> инвентарь -> земля» (phase-4-plan.md

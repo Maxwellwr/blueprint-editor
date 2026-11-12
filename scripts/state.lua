@@ -41,10 +41,16 @@ end
 --   { kind = "cursor" }                       -- исходник остался в руке (swap не удался);
 --   { kind = "pinned_stack", inventory = <LuaInventory>, page_path = {i,...}? }
 --       -- blueprint спрятан в mod-owned инвентаре; page_path -- active_index
---       -- пройденных книг (nil, если не книга);
+--       -- пройденных книг (nil, если не книга). С Phase 4 («Задача 4») сюда же
+--       -- blueprint_io.save_new_blueprint кладёт НОВЫЙ blueprint (new-режим и
+--       -- фолбэки от cursor_record/cursor) -- доставляет его каскад
+--       -- surface.teleport_out;
 --   { kind = "cursor_record", record = <LuaRecord>, writable = boolean,
 --     record_updated = boolean? }
---       -- запись Blueprint Library; writable = valid_for_write на входе;
+--       -- запись Blueprint Library; writable = valid_for_write на входе
+--       -- (информационно: решение о записи принимает blueprint_io.
+--       -- choose_save_target по живым valid/valid_for_write в момент записи);
+--       -- record_updated ставит save_back_to_record после успешной записи;
 --       -- record/writable/page_path -- аддитивные nil-safe поля, record == nil
 --       -- читается как «писать нельзя».
 function M.start_session(player_index, pre_edit, canvas_offset, import_data)

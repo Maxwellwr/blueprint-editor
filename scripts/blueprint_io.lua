@@ -332,11 +332,12 @@ end
 -- Blueprint Library, попадает в `player.cursor_record` (LuaRecord), а не в
 -- `player.cursor_stack` (LuaItemStack) -- последний в этом случае читается
 -- как невалидный (`valid_for_read = false`). `get_blueprint_entities()`/
--- `get_blueprint_tiles()` есть на обоих типах. Метаданные записи: `label`
--- пока НЕ читаем: целевая версия -- 2.1.24, где у LuaRecord `label` есть
--- (в 2.0.77 его не было -- падение Phase 1), но читать ли его -- решение
--- плана Phase 4 (идёт перепроверка). `preview_icons` и snap-поля -- читаем
--- (phase-4-plan.md «Задача 3»).
+-- `get_blueprint_tiles()` есть на обоих типах. Метаданные (label,
+-- preview_icons, три snap-поля) читаются одинаково у LuaItemStack и LuaRecord:
+-- в целевой версии 2.1.24 у LuaRecord есть RW `label` (API-факт 3 плана; в
+-- 2.0.77 его не было -- падение Phase 1), переносить его решено вопросом 9
+-- phase-4-plan.md -- иначе фолбэк «сохранить как новый» для read-only записи
+-- терял бы её имя.
 function M.import_from_stack(player, cursor_stack, cursor_record)
   local source, source_kind, page_path = unwrap_actual_blueprint(player, cursor_stack, cursor_record)
   if not source then
@@ -359,27 +360,15 @@ function M.import_from_stack(player, cursor_stack, cursor_record)
   local raw_center = M.compute_bounding_box_center(entities, tiles)
   local blueprint_center = { x = math.floor(raw_center.x + 0.5), y = math.floor(raw_center.y + 0.5) }
 
-  local label, icons, blueprint_snap
-  if source_kind == "cursor" then
-    label = source.label
-    icons = source.preview_icons
-    blueprint_snap = {
-      snap_to_grid = source.blueprint_snap_to_grid,
-      absolute_snapping = source.blueprint_absolute_snapping,
-      position_relative_to_grid = source.blueprint_position_relative_to_grid,
-    }
-  elseif source_kind == "cursor_record" then
-    -- Phase 4: поля записи нужны сохранению (метаданные переносятся с
-    -- исходника как есть). Целевая версия -- 2.1.24. `label` у LuaRecord в
-    -- 2.1.24 есть, но читать его или нет -- решение плана (идёт
-    -- перепроверка); пока не читаем.
-    icons = source.preview_icons
-    blueprint_snap = {
-      snap_to_grid = source.blueprint_snap_to_grid,
-      absolute_snapping = source.blueprint_absolute_snapping,
-      position_relative_to_grid = source.blueprint_position_relative_to_grid,
-    }
-  end
+  -- Метаданные переносятся с исходника как есть (phase-4-plan.md, вопросы 4
+  -- и 9) -- и у предмета, и у записи библиотеки одни и те же поля.
+  local label = source.label
+  local icons = source.preview_icons
+  local blueprint_snap = {
+    snap_to_grid = source.blueprint_snap_to_grid,
+    absolute_snapping = source.blueprint_absolute_snapping,
+    position_relative_to_grid = source.blueprint_position_relative_to_grid,
+  }
 
   return {
     entities = entities,
@@ -391,6 +380,293 @@ function M.import_from_stack(player, cursor_stack, cursor_record)
     blueprint_snap = blueprint_snap,
     origin = M.build_origin(source_kind, source, page_path),
   }
+end
+
+-- ===== Сохранение (phase-4-plan.md «Задача 4») =====
+
+-- Чистая логика без Factorio API: сводка уже построенных массивов
+-- BlueprintEntity/Tile -- для решения «пусто / не пусто» (вопрос 5 плана:
+-- пустой результат не сохраняется) и для строки лога о большом экспорте.
+-- Считает по массивам, а не по сессии: функции экспорта тайлы не видят
+-- (ревью Задачи 1), общая сводка N сущностей / W проводов / T тайлов
+-- собирается здесь. large -- тот же порог EXPORT_SIZE_LOG_THRESHOLD, по
+-- сущностям или по тайлам.
+function M.summarize_export(entities, tiles)
+  local wires = 0
+  for _, bp_entity in ipairs(entities) do
+    if bp_entity.wires then
+      wires = wires + #bp_entity.wires
+    end
+  end
+  local entity_count, tile_count = #entities, #tiles
+  return {
+    entities = entity_count,
+    wires = wires,
+    tiles = tile_count,
+    empty = entity_count == 0 and tile_count == 0,
+    large = entity_count > EXPORT_SIZE_LOG_THRESHOLD or tile_count > EXPORT_SIZE_LOG_THRESHOLD,
+  }
+end
+
+-- Чистая логика без Factorio API: куда писать результат. Возвращает target
+-- ("stack" | "record" | "new") и reason для сообщения игроку (nil у записи
+-- на месте). Решения владельца (phase-4-plan.md «Вопросы владельцу»):
+--   * вопрос 2 -- в запись библиотеки пишем на месте, только если В МОМЕНТ
+--     ЗАПИСИ record.valid and record.valid_for_write: ссылку могли
+--     инвалидировать после входа (спайк S1), поэтому origin.writable с момента
+--     входа здесь не решает ничего; иначе -- новый blueprint в руку;
+--   * record == nil -- сессия из сохранения старой версии (Global
+--     Constraints): «писать нельзя, сохранить как новый»;
+--   * kind == "cursor" (swap при входе не удался, исходник остался в руке) --
+--     на месте писать некуда: god-курсор не видит руку character-контроллера
+--     (phase-1-implementation.md), поэтому новый blueprint; каскад
+--     teleport_out положит его в инвентарь, раз курсор занят исходником.
+-- record читается как таблица с полями valid/valid_for_write -- тесты
+-- подкладывают обычные таблицы. Неизвестный kind -- error() (fail-fast).
+function M.choose_save_target(session)
+  local origin = session.origin
+  if session.mode == "new" or origin == nil then
+    return "new", "new_mode"
+  end
+  if origin.kind == "pinned_stack" then
+    return "stack", nil
+  end
+  if origin.kind == "cursor_record" then
+    local record = origin.record
+    if record == nil then
+      return "new", "record_missing"
+    end
+    if not record.valid then
+      return "new", "record_invalid"
+    end
+    if not record.valid_for_write then
+      return "new", "record_read_only"
+    end
+    return "record", nil
+  end
+  if origin.kind == "cursor" then
+    return "new", "source_in_hand"
+  end
+  error("Blueprint Editor: unknown session origin kind " .. tostring(origin.kind))
+end
+
+-- Чистая логика без Factorio API: метаданные для write_blueprint_data из
+-- полей сессии; ключи -- имена RW-атрибутов LuaItemStack/LuaRecord (API-факты
+-- 1, 3, 4 плана). Поля nil-safe: отсутствующее не записывается, чтобы не
+-- затирать значения исходника отсутствием данных; у new-режима всё nil --
+-- label не задаётся, иконки игра выберет сама (default_icons, вопрос 4).
+-- absolute_snapping = false -- значение, а не отсутствие, переносится.
+function M.build_save_metadata(session)
+  local snap = session.blueprint_snap or {}
+  return {
+    label = session.label,
+    preview_icons = session.icons,
+    blueprint_snap_to_grid = snap.snap_to_grid,
+    blueprint_absolute_snapping = snap.absolute_snapping,
+    blueprint_position_relative_to_grid = snap.position_relative_to_grid,
+  }
+end
+
+-- Тексты фолбэка «сохранён как новый» по reason из choose_save_target.
+local NEW_BLUEPRINT_MESSAGES = {
+  new_mode = "Blueprint Editor: saved %d entities and %d tiles as a new blueprint.",
+  record_read_only = "Blueprint Editor: the Blueprint Library record is read-only (My blueprints or a preview) -- saved %d entities and %d tiles as a new blueprint in hand instead.",
+  record_invalid = "Blueprint Editor: the Blueprint Library record is no longer valid -- saved %d entities and %d tiles as a new blueprint in hand instead.",
+  record_missing = "Blueprint Editor: the Blueprint Library record was not remembered for this session -- saved %d entities and %d tiles as a new blueprint in hand instead.",
+  source_in_hand = "Blueprint Editor: the source blueprint stayed in your hand -- saved %d entities and %d tiles as a new blueprint instead.",
+}
+
+-- Чистая логика без Factorio API: сообщение игроку после успешной записи.
+-- Для записи библиотеки на месте -- nil: о ней при выходе сообщает
+-- teleport_out по origin.record_updated (заготовка Задачи 3), второе
+-- сообщение было бы дублем. Неизвестный target/reason -- error() (fail-fast).
+function M.save_result_message(target, reason, summary)
+  if target == "stack" then
+    return string.format(
+      "Blueprint Editor: saved %d entities and %d tiles back to your blueprint.",
+      summary.entities, summary.tiles
+    )
+  elseif target == "record" then
+    return nil
+  elseif target == "new" then
+    local template = NEW_BLUEPRINT_MESSAGES[reason]
+    if not template then
+      error("Blueprint Editor: unknown save fallback reason " .. tostring(reason))
+    end
+    return string.format(template, summary.entities, summary.tiles)
+  end
+  error("Blueprint Editor: unknown save target " .. tostring(target))
+end
+
+-- Snap-поля пишутся ДО сущностей (см. write_blueprint_data); порядок важен
+-- и для самих полей: position_relative_to_grid имеет смысл только при
+-- включённом absolute_snapping.
+local SNAP_FIELDS = {
+  "blueprint_snap_to_grid",
+  "blueprint_absolute_snapping",
+  "blueprint_position_relative_to_grid",
+}
+
+-- Единая запись в LuaItemStack ИЛИ LuaRecord: у обоих одинаковые
+-- set_blueprint_entities/set_blueprint_tiles и RW preview_icons, label,
+-- snap-поля (API-факты 1, 3, 4 плана, перепроверены по runtime-api.json
+-- 2.1.24). Порядок: snap-поля -> set_blueprint_entities(entities, false) ->
+-- set_blueprint_tiles(tiles) -> label -> preview_icons.
+--   * fix_positions = false (вопрос 10): позиции остаются как в экспорте
+--     «unless invalid for the current snapping» -- поэтому snap выставляется
+--     до сущностей, чтобы новый blueprint и перезаписываемый исходник (где
+--     snap уже стоит) вели себя одинаково; сдвиг позиций игрой при включённом
+--     snap фиксирует спайк S4, ошибкой экспорта не считается.
+--   * set_blueprint_tiles вызывается всегда, даже с пустым массивом: игрок мог
+--     удалить все тайлы (или все сущности -- set_blueprint_entities тоже
+--     всегда). clear_blueprint() не используем: не задокументировано, чистит
+--     ли он label/иконки/snap -- проверяется playtest'ом по пунктам
+--     «только тайлы» / «только сущности».
+--   * metadata-поле nil -- значение цели не трогается.
+--   * export нельзя мутировать (контракт export_to_*) -- передаётся как есть.
+-- Весь блок -- в pcall: единственная точка, где ошибка API ловится, чтобы не
+-- потерять исходник (Global Constraints плана); возвращает ok, err_text.
+function M.write_blueprint_data(target, export, metadata)
+  local ok, err = pcall(function()
+    for _, field in ipairs(SNAP_FIELDS) do
+      if metadata[field] ~= nil then
+        target[field] = metadata[field]
+      end
+    end
+    target.set_blueprint_entities(export.entities, false)
+    target.set_blueprint_tiles(export.tiles)
+    if metadata.label ~= nil then
+      target.label = metadata.label
+    end
+    if metadata.preview_icons ~= nil then
+      target.preview_icons = metadata.preview_icons
+    end
+  end)
+  if not ok then
+    return false, tostring(err)
+  end
+  return true
+end
+
+-- Страница книги внутри pinned-стека по origin.page_path (active_index
+-- каждой пройденной книги, от внешней к внутренней -- unwrap_actual_blueprint):
+-- тот же путь, что при импорте (вопрос 3 плана, вариант (а)). Пока книга
+-- лежит в mod-owned инвентаре, игрок её не видит и active_index сменить не
+-- может. Пустой page_path -- сам корневой стек.
+local function resolve_pinned_page(root_stack, page_path)
+  local stack = root_stack
+  for depth, index in ipairs(page_path or {}) do
+    if not (stack.valid_for_read and stack.is_blueprint_book) then
+      return nil, string.format("page_path step %d is not a blueprint book", depth)
+    end
+    local inventory = stack.get_inventory(defines.inventory.item_main)
+    if not inventory then
+      return nil, string.format("page_path step %d: the book has no item inventory", depth)
+    end
+    stack = inventory[index]
+    if not stack then
+      return nil, string.format("page_path step %d: slot %s is out of range", depth, tostring(index))
+    end
+  end
+  return stack
+end
+
+local RETRY_HINT = " Your original blueprint is kept; fix and save again, or exit without saving (eb-discard)."
+
+-- origin.kind == "pinned_stack": запись в заколотый стек (или страницу книги
+-- в нём) ДО возврата в курсор -- стек лежит в mod-owned инвентаре, контроллер
+-- игрока не важен. Неподходящая цель -- false, message (сессия остаётся).
+function M.save_back_to_stack(session, export, metadata)
+  local origin = session.origin
+  local inventory = origin.inventory
+  if not (inventory and inventory.valid) then
+    return false, "Blueprint Editor: the inventory holding your blueprint is gone -- nothing was written." .. RETRY_HINT
+  end
+  local stack, why = resolve_pinned_page(inventory[1], origin.page_path)
+  if not stack then
+    return false, "Blueprint Editor: could not find the blueprint page to write to (" .. why .. ")." .. RETRY_HINT
+  end
+  if not (stack.valid_for_read and stack.is_blueprint) then
+    return false, "Blueprint Editor: the pinned item is not a blueprint -- nothing was written." .. RETRY_HINT
+  end
+  local ok, err = M.write_blueprint_data(stack, export, metadata)
+  if not ok then
+    return false, "Blueprint Editor: writing the blueprint failed: " .. err .. RETRY_HINT
+  end
+  return true
+end
+
+-- origin.kind == "cursor_record", запись valid и valid_for_write в момент
+-- записи (проверено choose_save_target): запись на месте; record_updated --
+-- для сообщения teleport_out (Задача 3).
+function M.save_back_to_record(session, export, metadata)
+  local ok, err = M.write_blueprint_data(session.origin.record, export, metadata)
+  if not ok then
+    return false, "Blueprint Editor: writing the Blueprint Library record failed: " .. err .. RETRY_HINT
+  end
+  session.origin.record_updated = true
+  return true
+end
+
+-- New-режим и все фолбэки: новый предмет blueprint во временном mod-owned
+-- инвентаре. Курсор здесь не трогаем -- god-контроллер имеет собственный
+-- курсор (phase-1-implementation.md), поэтому origin подменяется на
+-- pinned_stack, и готовый blueprint доставляет каскад teleport_out
+-- «курсор -> инвентарь -> земля» уже после восстановления
+-- character-контроллера (ADR-0001 §8(a).2, вопрос 6). Прежний origin
+-- (cursor_record / cursor) при этом отбрасывается: запись библиотеки и рука
+-- игрока не трогаются, о фолбэке сообщает save_session. При ошибке записи
+-- временный инвентарь уничтожается, origin остаётся прежним.
+function M.save_new_blueprint(session, export, metadata)
+  local inventory = game.create_inventory(1)
+  local stack = inventory[1]
+  if not stack.set_stack({ name = "blueprint" }) then
+    inventory.destroy()
+    return false, "Blueprint Editor: could not create a new blueprint item -- nothing was saved." .. RETRY_HINT
+  end
+  local ok, err = M.write_blueprint_data(stack, export, metadata)
+  if not ok then
+    inventory.destroy()
+    return false, "Blueprint Editor: writing the new blueprint failed: " .. err .. RETRY_HINT
+  end
+  session.origin = { kind = "pinned_stack", inventory = inventory }
+  return true
+end
+
+-- Диспетчер сохранения при выходе (control.lua, выход по eb-toggle-editor --
+-- вопрос 1). Возвращает ok, message: на false сессия НЕ закрывается, игрок
+-- видит сообщение и может исправить или выйти через eb-discard. Запись идёт
+-- после успешного экспорта и до возврата pinned-стека в курсор (Global
+-- Constraints плана). Пустой экспорт -- отказ без записи (вопрос 5).
+function M.save_session(session)
+  local entities = M.export_to_entities_array(session.entities)
+  local tiles = M.export_to_tiles_array(session.tiles)
+  local summary = M.summarize_export(entities, tiles)
+  if summary.empty then
+    return false, "Blueprint Editor: nothing to save (no entities and no tiles) -- the source was left untouched; keep editing or exit without saving (eb-discard)."
+  end
+  if summary.large then
+    log(string.format(
+      "Blueprint Editor: saving a large session (%d entities, %d wires, %d tiles) -- above the %d threshold",
+      summary.entities, summary.wires, summary.tiles, EXPORT_SIZE_LOG_THRESHOLD
+    ))
+  end
+
+  local export = { entities = entities, tiles = tiles }
+  local metadata = M.build_save_metadata(session)
+  local target, reason = M.choose_save_target(session)
+  local ok, err
+  if target == "stack" then
+    ok, err = M.save_back_to_stack(session, export, metadata)
+  elseif target == "record" then
+    ok, err = M.save_back_to_record(session, export, metadata)
+  else
+    ok, err = M.save_new_blueprint(session, export, metadata)
+  end
+  if not ok then
+    return false, err
+  end
+  return true, M.save_result_message(target, reason, summary)
 end
 
 return M
