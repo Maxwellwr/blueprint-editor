@@ -41,19 +41,25 @@ local function exit_editor(player, session)
   surface.teleport_out(player)
 end
 
--- Точка вызова сохранения при выходе по eb-toggle-editor (phase-4-plan.md
--- «Задача 2»). Заглушка: реальное сохранение подключает Задача 4.
----@diagnostic disable-next-line: unused-local
+-- Сохранение при выходе по eb-toggle-editor (phase-4-plan.md «Задача 4»,
+-- вопрос 1: выход сохраняет, eb-discard -- без сохранения). Возвращает ok:
+-- на false сессия остаётся открытой -- игрок видит причину, правит дальше или
+-- выходит через eb-discard; исходник при этом не тронут.
 local function save_on_exit(player, session)
-  player.print({"", "Blueprint Editor: saving on exit is not connected yet (Phase 4)."})
+  local ok, message = blueprint_io.save_session(session)
+  if message then
+    player.print({"", message})
+  end
+  return ok
 end
 
 local function on_toggle_editor(event)
   local player = game.get_player(event.player_index)
   local session = state.get_session(player.index)
   if session then
-    save_on_exit(player, session)
-    exit_editor(player, session)
+    if save_on_exit(player, session) then
+      exit_editor(player, session)
+    end
   else
     local import_data = blueprint_io.import_from_stack(player, player.cursor_stack, player.cursor_record)
     if surface.teleport_in(player, import_data) then
@@ -92,3 +98,4 @@ script.on_event("eb-cycle-palette-next", input.on_cycle_palette_next)
 script.on_event("eb-cycle-palette-prev", input.on_cycle_palette_prev)
 
 commands.add_command("eb-dump-session", {"", "Blueprint Editor: dump the current editor session to the log."}, debug_commands.dump_session)
+commands.add_command("eb-dump-export", {"", "Blueprint Editor: dump the export of the current editor session to the log without saving."}, debug_commands.dump_export)
