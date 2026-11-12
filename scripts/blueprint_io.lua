@@ -524,23 +524,62 @@ local SNAP_FIELDS = {
 --     «только тайлы» / «только сущности».
 --   * metadata-поле nil -- значение цели не трогается.
 --   * export нельзя мутировать (контракт export_to_*) -- передаётся как есть.
--- Весь блок -- в pcall: единственная точка, где ошибка API ловится, чтобы не
--- потерять исходник (Global Constraints плана); возвращает ok, err_text.
+local function apply_blueprint_data(target, export, metadata)
+  for _, field in ipairs(SNAP_FIELDS) do
+    if metadata[field] ~= nil then
+      target[field] = metadata[field]
+    end
+  end
+  target.set_blueprint_entities(export.entities, false)
+  target.set_blueprint_tiles(export.tiles)
+  if metadata.label ~= nil then
+    target.label = metadata.label
+  end
+  if metadata.preview_icons ~= nil then
+    target.preview_icons = metadata.preview_icons
+  end
+end
+
+-- Человекочитаемое имя цели для сообщений игроку.
+local function describe_target(target)
+  if target.object_name == "LuaRecord" then
+    return "Blueprint Library record"
+  end
+  return "blueprint"
+end
+
+-- Запись в цель -- ДВУХФАЗНАЯ (ревью PR #23): apply_blueprint_data пишет по
+-- шагам, и ошибка на set_blueprint_tiles/preview_icons после сущностей
+-- оставила бы исходник наполовину переписанным. Поэтому сначала тот же код
+-- целиком прогоняется на временном blueprint'е (game.create_inventory(1),
+-- set_stack{name="blueprint"}) -- игра валидирует данные там; временный
+-- инвентарь уничтожается всегда. Только при успехе пробной фазы пишется
+-- настоящая цель (pinned-стек, страница книги, LuaRecord). Если пробная
+-- прошла, а настоящая упала (на практике -- расхождение состояния цели с
+-- пустым blueprint'ом), сообщение игроку честно говорит, что цель могла быть
+-- переписана частично, и ошибка уходит в постоянный лог.
+--
+-- Единственная точка, где ошибка API ловится pcall'ом, чтобы не потерять
+-- исходник (Global Constraints плана). Возвращает ok, message -- message уже
+-- готов для player.print.
 function M.write_blueprint_data(target, export, metadata)
+  local trial_inventory = game.create_inventory(1)
+  local trial_ok, trial_err = pcall(function()
+    local trial = trial_inventory[1]
+    if not trial.set_stack({ name = "blueprint" }) then
+      error("could not create a trial blueprint item")
+    end
+    apply_blueprint_data(trial, export, metadata)
+  end)
+  trial_inventory.destroy()
+  if not trial_ok then
+    log("Blueprint Editor: the game rejected the blueprint data during the trial write: " .. tostring(trial_err))
+    return false, "Blueprint Editor: the game rejected the blueprint data (" .. tostring(trial_err) ..
+      "). Nothing was written -- your original blueprint is kept; fix and save again, or exit without saving (eb-discard)."
+  end
+
   local ok, err = pcall(function()
-    for _, field in ipairs(SNAP_FIELDS) do
-      if metadata[field] ~= nil then
-        target[field] = metadata[field]
-      end
-    end
-    target.set_blueprint_entities(export.entities, false)
-    target.set_blueprint_tiles(export.tiles)
-    if metadata.label ~= nil then
-      target.label = metadata.label
-    end
-    if metadata.preview_icons ~= nil then
-      target.preview_icons = metadata.preview_icons
-    end
+    apply_blueprint_data(target, export, metadata)
   end)
   log("eb playtest: write_blueprint_data pcall ok=" .. tostring(ok) ..
     " target_type=" .. tostring(target.object_name) ..
@@ -550,7 +589,10 @@ function M.write_blueprint_data(target, export, metadata)
     " absolute=" .. tostring(metadata.blueprint_absolute_snapping) ..
     (ok and "" or (" err=" .. tostring(err))))
   if not ok then
-    return false, tostring(err)
+    local what = describe_target(target)
+    log("Blueprint Editor: writing into the " .. what .. " failed after a successful trial write -- it may be partially overwritten: " .. tostring(err))
+    return false, "Blueprint Editor: writing into the " .. what .. " failed after the data passed a trial write (" ..
+      tostring(err) .. "). The " .. what .. " may be partially overwritten -- check it; the editor session is still open (eb-discard exits without further changes)."
   end
   return true
 end
@@ -617,7 +659,7 @@ function M.save_back_to_stack(session, export, metadata)
     " before=" .. playtest_export_string(stack))
   local ok, err = M.write_blueprint_data(stack, export, metadata)
   if not ok then
-    return false, "Blueprint Editor: writing the blueprint failed: " .. err .. RETRY_HINT
+    return false, err
   end
   log("eb playtest: save_back_to_stack after=" .. playtest_export_string(stack))
   return true
@@ -631,7 +673,7 @@ function M.save_back_to_record(session, export, metadata)
   log("eb playtest: save_back_to_record before=" .. playtest_export_string(record))
   local ok, err = M.write_blueprint_data(record, export, metadata)
   if not ok then
-    return false, "Blueprint Editor: writing the Blueprint Library record failed: " .. err .. RETRY_HINT
+    return false, err
   end
   session.origin.record_updated = true
   log("eb playtest: save_back_to_record after=" .. playtest_export_string(record) ..
@@ -658,7 +700,7 @@ function M.save_new_blueprint(session, export, metadata)
   local ok, err = M.write_blueprint_data(stack, export, metadata)
   if not ok then
     inventory.destroy()
-    return false, "Blueprint Editor: writing the new blueprint failed: " .. err .. RETRY_HINT
+    return false, err
   end
   log("eb playtest: save_new_blueprint previous_origin=" .. tostring(session.origin and session.origin.kind) ..
     " is_blueprint_setup=" .. tostring(stack.is_blueprint_setup()) ..
