@@ -58,6 +58,10 @@ function M.dump_export(command)
     "Blueprint Editor: export summary -- %d entities, %d wires, %d tiles; save target = %s (%s)",
     summary.entities, summary.wires, summary.tiles, target, tostring(reason)
   ))
+  -- Временное playtest-логирование: спайк S4 на том же экспорте.
+  if not summary.empty then
+    blueprint_io.playtest_compare_fix_positions(session)
+  end
   player.print({"", "Blueprint Editor: export dumped to the log (nothing was written)."})
 end
 

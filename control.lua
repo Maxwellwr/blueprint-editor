@@ -47,6 +47,7 @@ end
 -- выходит через eb-discard; исходник при этом не тронут.
 local function save_on_exit(player, session)
   local ok, message = blueprint_io.save_session(session)
+  log("eb playtest: save_on_exit ok=" .. tostring(ok) .. " message=" .. tostring(message))
   if message then
     player.print({"", message})
   end

@@ -542,10 +542,33 @@ function M.write_blueprint_data(target, export, metadata)
       target.preview_icons = metadata.preview_icons
     end
   end)
+  log("eb playtest: write_blueprint_data pcall ok=" .. tostring(ok) ..
+    " target_type=" .. tostring(target.object_name) ..
+    " entities=" .. #export.entities .. " tiles=" .. #export.tiles ..
+    " label=" .. tostring(metadata.label) .. " icons=" .. tostring(metadata.preview_icons ~= nil) ..
+    " snap=" .. tostring(metadata.blueprint_snap_to_grid ~= nil) ..
+    " absolute=" .. tostring(metadata.blueprint_absolute_snapping) ..
+    (ok and "" or (" err=" .. tostring(err))))
   if not ok then
     return false, tostring(err)
   end
   return true
+end
+
+-- Временное playtest-логирование: export_stack()/export_record() цели для
+-- сравнения «до/после» (no-op регрессия) -- под pcall, чтобы диагностика
+-- не могла сломать сохранение.
+local function playtest_export_string(target)
+  local ok, result = pcall(function()
+    if target.object_name == "LuaRecord" then
+      return target.export_record()
+    end
+    return target.export_stack()
+  end)
+  if not ok then
+    return "<export failed: " .. tostring(result) .. ">"
+  end
+  return result
 end
 
 -- Страница книги внутри pinned-стека по origin.page_path (active_index
@@ -589,10 +612,14 @@ function M.save_back_to_stack(session, export, metadata)
   if not (stack.valid_for_read and stack.is_blueprint) then
     return false, "Blueprint Editor: the pinned item is not a blueprint -- nothing was written." .. RETRY_HINT
   end
+  log("eb playtest: save_back_to_stack page_path=" .. serpent.line(origin.page_path) ..
+    " is_book_root=" .. tostring(inventory[1].is_blueprint_book) ..
+    " before=" .. playtest_export_string(stack))
   local ok, err = M.write_blueprint_data(stack, export, metadata)
   if not ok then
     return false, "Blueprint Editor: writing the blueprint failed: " .. err .. RETRY_HINT
   end
+  log("eb playtest: save_back_to_stack after=" .. playtest_export_string(stack))
   return true
 end
 
@@ -600,11 +627,15 @@ end
 -- записи (проверено choose_save_target): запись на месте; record_updated --
 -- для сообщения teleport_out (Задача 3).
 function M.save_back_to_record(session, export, metadata)
-  local ok, err = M.write_blueprint_data(session.origin.record, export, metadata)
+  local record = session.origin.record
+  log("eb playtest: save_back_to_record before=" .. playtest_export_string(record))
+  local ok, err = M.write_blueprint_data(record, export, metadata)
   if not ok then
     return false, "Blueprint Editor: writing the Blueprint Library record failed: " .. err .. RETRY_HINT
   end
   session.origin.record_updated = true
+  log("eb playtest: save_back_to_record after=" .. playtest_export_string(record) ..
+    " valid=" .. tostring(record.valid) .. " valid_for_write=" .. tostring(record.valid_for_write))
   return true
 end
 
@@ -629,6 +660,9 @@ function M.save_new_blueprint(session, export, metadata)
     inventory.destroy()
     return false, "Blueprint Editor: writing the new blueprint failed: " .. err .. RETRY_HINT
   end
+  log("eb playtest: save_new_blueprint previous_origin=" .. tostring(session.origin and session.origin.kind) ..
+    " is_blueprint_setup=" .. tostring(stack.is_blueprint_setup()) ..
+    " export=" .. playtest_export_string(stack))
   session.origin = { kind = "pinned_stack", inventory = inventory }
   return true
 end
@@ -655,6 +689,17 @@ function M.save_session(session)
   local export = { entities = entities, tiles = tiles }
   local metadata = M.build_save_metadata(session)
   local target, reason = M.choose_save_target(session)
+  -- Спайк S1 в момент записи: живые valid/valid_for_write записи против
+  -- writable, запомненного на входе.
+  local origin = session.origin or {}
+  local record = origin.record
+  log("eb playtest: save_session player=" .. tostring(session.player_index) ..
+    " mode=" .. tostring(session.mode) .. " origin.kind=" .. tostring(origin.kind) ..
+    " origin.writable=" .. tostring(origin.writable) ..
+    " record.valid=" .. tostring(record and record.valid) ..
+    " record.valid_for_write=" .. tostring(record and record.valid and record.valid_for_write) ..
+    " target=" .. target .. " reason=" .. tostring(reason) ..
+    " entities=" .. summary.entities .. " wires=" .. summary.wires .. " tiles=" .. summary.tiles)
   local ok, err
   if target == "stack" then
     ok, err = M.save_back_to_stack(session, export, metadata)
@@ -663,10 +708,53 @@ function M.save_session(session)
   else
     ok, err = M.save_new_blueprint(session, export, metadata)
   end
+  log("eb playtest: save_session result ok=" .. tostring(ok) .. (ok and "" or (" err=" .. tostring(err))))
   if not ok then
     return false, err
   end
   return true, M.save_result_message(target, reason, summary)
+end
+
+-- Временное playtest-логирование, спайк S4 (phase-4-plan.md «Спайки»,
+-- вопрос 10): один и тот же экспорт пишется в два временных blueprint'а --
+-- set_blueprint_entities(e, false) и set_blueprint_entities(e) (умолчание) --
+-- и сравниваются export_stack(). Снап-поля сессии переносятся на оба, чтобы
+-- оговорка «unless invalid for the current snapping» действовала одинаково.
+-- Ничего в сессии и исходнике не трогает; вызывается из /eb-dump-export.
+function M.playtest_compare_fix_positions(session)
+  local entities = M.export_to_entities_array(session.entities)
+  local tiles = M.export_to_tiles_array(session.tiles)
+  local metadata = M.build_save_metadata(session)
+  local results = {}
+  for _, variant in ipairs({ "false", "default" }) do
+    local inventory = game.create_inventory(1)
+    local stack = inventory[1]
+    local ok, err = pcall(function()
+      assert(stack.set_stack({ name = "blueprint" }), "set_stack blueprint failed")
+      for _, field in ipairs(SNAP_FIELDS) do
+        if metadata[field] ~= nil then
+          stack[field] = metadata[field]
+        end
+      end
+      if variant == "false" then
+        stack.set_blueprint_entities(entities, false)
+      else
+        stack.set_blueprint_entities(entities)
+      end
+      stack.set_blueprint_tiles(tiles)
+    end)
+    if ok then
+      results[variant] = stack.export_stack()
+      log("eb playtest: S4 fix_positions=" .. variant .. " entities=" ..
+        serpent.line(stack.get_blueprint_entities() or {}, { comment = false }))
+    else
+      results[variant] = "<failed: " .. tostring(err) .. ">"
+    end
+    inventory.destroy()
+  end
+  log("eb playtest: S4 fix_positions=false export=" .. results["false"])
+  log("eb playtest: S4 fix_positions=default export=" .. results["default"])
+  log("eb playtest: S4 identical=" .. tostring(results["false"] == results["default"]))
 end
 
 return M

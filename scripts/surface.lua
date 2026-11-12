@@ -183,12 +183,18 @@ function M.teleport_out(player)
       -- его. Занятый чужим предметом курсор -- не swap, а следующий шаг
       -- каскада (инвентарь), как и велит ADR-0001 §8(a).2.
       local cursor_stack = player.cursor_stack
+      local cursor_before = cursor_stack.valid_for_read and cursor_stack.name or "<empty>"
       if cursor_stack.valid_for_read and cursor_stack.name == "eb-cursor-tool" then
         cursor_stack.clear()
       end
+      local swapped = nil
       if not cursor_stack.valid_for_read then
-        cursor_stack.swap_stack(pinned_stack)
+        swapped = cursor_stack.swap_stack(pinned_stack)
       end
+      log("eb playtest: return cascade cursor_before=" .. cursor_before ..
+        " swapped_into_cursor=" .. tostring(swapped) ..
+        " pinned_still_held=" .. tostring(pinned_stack.valid_for_read) ..
+        " page_path=" .. serpent.line(origin.page_path))
     end
     if pinned_stack.valid_for_read then
       -- Каскад ADR-0001 §8(a).2 «курсор -> инвентарь -> земля» (phase-4-plan.md
