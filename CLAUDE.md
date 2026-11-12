@@ -26,5 +26,5 @@
 - **Язык проекта — русский.** Все артефакты (документы, планы, комментарии в коде, тексты PR и issue) — по-русски, и ответы Claude Code владельцу в чате — тоже. Исключение — заголовки коммитов: Conventional Commits на английском (`docs/sdlc.md`, «Коммиты»).
 - **Репозиторий — на GitHub** (`github.com/Maxwellwr/blueprint-editor`), CI — GitHub Actions, инструмент — `gh`. В `main` — только через PR; фаза ведётся в ветке `phase/N-<slug>` и сливается в `main` одним PR по окончании. Merge в `main` делает владелец; PR в ветку фазы без решений владельца мёржит основной агент по чек-листу. Бота нет: реплики агентов в GitHub начинаются с «🤖». Подробно — `.claude/rules/github-workflow.md`.
 - **Основной агент оркестрирует, подагенты исполняют** — `.claude/rules/agent-orchestration.md`.
-- **Factorio API — только по документации установленной версии** (`2.0.77`, `https://lua-api.factorio.com/2.0.77/…`), никогда `/latest/` — `docs/sdlc.md`, «Версия Factorio и проверка API-фактов».
+- **Factorio API — только по документации установленной версии** (`2.1.24`, `https://lua-api.factorio.com/2.1.24/…`), никогда `/latest/` — `docs/sdlc.md`, «Версия Factorio и проверка API-фактов».
 - **Playtest проводит владелец**, агент готовит временное логирование `eb playtest:` и разбирает `factorio-current.log` — `docs/sdlc.md`, «Тестирование».
