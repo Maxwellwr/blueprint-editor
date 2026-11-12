@@ -728,3 +728,122 @@ describe("blueprint_io.save_result_message", function()
     assert.has_error(function() blueprint_io.save_result_message("new", "because", summary) end)
   end)
 end)
+
+-- write_blueprint_data -- API-зависимая функция, но её двухфазность (пробная
+-- запись во временный blueprint, затем в цель) проверяется на минимальных
+-- заглушках: цель и временный blueprint -- таблицы, записывающие вызовы;
+-- game.create_inventory подменяется на время теста.
+describe("blueprint_io.write_blueprint_data (two-phase write)", function()
+  local saved_log, saved_game, log_lines
+
+  before_each(function()
+    saved_log, saved_game = _G.log, _G.game
+    log_lines = {}
+    _G.log = function(message) log_lines[#log_lines + 1] = message end
+  end)
+
+  after_each(function()
+    _G.log, _G.game = saved_log, saved_game
+  end)
+
+  -- Заглушка LuaItemStack: методы записывают вызовы, присваивания атрибутов
+  -- (snap-поля, label, preview_icons) -- тоже, чтобы проверить порядок.
+  local function fake_blueprint(options)
+    local calls = {}
+    local methods = {
+      calls = calls,
+      object_name = "LuaItemStack",
+      set_stack = function(stack)
+        calls[#calls + 1] = { "set_stack", stack.name }
+        return true
+      end,
+      set_blueprint_entities = function(entities, fix_positions)
+        calls[#calls + 1] = { "set_blueprint_entities", entities, fix_positions }
+      end,
+      set_blueprint_tiles = function(tiles)
+        if options and options.fail_tiles then
+          error("tiles rejected by the game")
+        end
+        calls[#calls + 1] = { "set_blueprint_tiles", tiles }
+      end,
+    }
+    return setmetatable({}, {
+      __index = methods,
+      __newindex = function(self, key, value)
+        calls[#calls + 1] = { "set", key, value }
+        rawset(self, key, value)
+      end,
+    })
+  end
+
+  local function install_game(trial)
+    local inventory = { trial, destroyed = false }
+    inventory.destroy = function() inventory.destroyed = true end
+    _G.game = { create_inventory = function() return inventory end }
+    return inventory
+  end
+
+  local export = {
+    entities = { { entity_number = 1, name = "iron-chest", position = { x = 0, y = 0 } } },
+    tiles = { { name = "concrete", position = { x = 0, y = 0 } } },
+  }
+  local metadata = { label = "Base", preview_icons = { { signal = { name = "iron-chest" }, index = 1 } },
+    blueprint_snap_to_grid = { x = 2, y = 2 }, blueprint_absolute_snapping = false }
+
+  it("leaves the target untouched when the trial write fails, and destroys the trial inventory", function()
+    local inventory = install_game(fake_blueprint({ fail_tiles = true }))
+    local target = fake_blueprint()
+    local ok, message = blueprint_io.write_blueprint_data(target, export, metadata)
+    assert.is_false(ok)
+    assert.are.same({}, target.calls)
+    assert.is_true(inventory.destroyed)
+    assert.truthy(message:find("tiles rejected by the game", 1, true))
+    assert.truthy(message:find("kept", 1, true))
+    assert.truthy(log_lines[1]:find("tiles rejected by the game", 1, true))
+  end)
+
+  it("writes into the target after a successful trial: snap fields, entities with fix_positions = false, tiles, label, icons", function()
+    local trial = fake_blueprint()
+    local inventory = install_game(trial)
+    local target = fake_blueprint()
+    local ok = blueprint_io.write_blueprint_data(target, export, metadata)
+    assert.is_true(ok)
+    assert.is_true(inventory.destroyed)
+    assert.are.equal("set_stack", trial.calls[1][1])
+    assert.are.same({
+      { "set", "blueprint_snap_to_grid", metadata.blueprint_snap_to_grid },
+      { "set", "blueprint_absolute_snapping", false },
+      { "set_blueprint_entities", export.entities, false },
+      { "set_blueprint_tiles", export.tiles },
+      { "set", "label", "Base" },
+      { "set", "preview_icons", metadata.preview_icons },
+    }, target.calls)
+  end)
+
+  it("does not write metadata fields that are nil", function()
+    install_game(fake_blueprint())
+    local target = fake_blueprint()
+    assert.is_true(blueprint_io.write_blueprint_data(target, export, {}))
+    assert.are.same({
+      { "set_blueprint_entities", export.entities, false },
+      { "set_blueprint_tiles", export.tiles },
+    }, target.calls)
+  end)
+
+  it("reports honestly when the target write fails after the trial passed", function()
+    local inventory = install_game(fake_blueprint())
+    local target = fake_blueprint({ fail_tiles = true })
+    local ok, message = blueprint_io.write_blueprint_data(target, export, metadata)
+    assert.is_false(ok)
+    assert.is_true(inventory.destroyed)
+    assert.is_nil(message:find("kept", 1, true))
+    assert.truthy(message:find("partially", 1, true))
+    assert.truthy(message:find("tiles rejected by the game", 1, true))
+    local permanent = {}
+    for _, line in ipairs(log_lines) do
+      if not line:find("eb playtest:", 1, true) then permanent[#permanent + 1] = line end
+    end
+    assert.are.equal(1, #permanent)
+    assert.truthy(permanent[1]:find("after a successful trial", 1, true))
+  end)
+end)

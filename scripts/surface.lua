@@ -221,8 +221,19 @@ function M.teleport_out(player)
     end
     if pinned_stack.valid_for_read then
       -- swap в курсор и в инвентарь не сработали -- роняем на землю,
-      -- не теряем содержимое молча.
-      player.surface.spill_item_stack{ position = player.position, stack = pinned_stack, enable_looted = true }
+      -- не теряем содержимое молча. API-факт (runtime-api.json 2.1.24):
+      -- spill_item_stack принимает ItemStackIdentification, возвращает
+      -- array[LuaEntity] созданных item-on-ground и НЕ обещает опустошить
+      -- исходный стек -- он копирует. Поэтому после успешного spill (список
+      -- непуст) стек чистим сами, иначе ниже ложное «could not return…» и
+      -- утечка mod-owned инвентаря с копией (ревью PR #23). Пустой список --
+      -- предмет на землю не попал: стек не чистим, сообщаем.
+      local spilled = player.surface.spill_item_stack{ position = player.position, stack = pinned_stack, enable_looted = true }
+      if spilled and #spilled > 0 then
+        pinned_stack.clear()
+      else
+        player.print({"", "Blueprint Editor: could not drop your blueprint on the ground either."})
+      end
     end
     if pinned_stack.valid_for_read then
       -- Даже spill не сработал (не должно случаться) -- НЕ уничтожаем
