@@ -11,7 +11,7 @@ isolation: worktree
 1. Ты в своём git worktree: `git fetch origin`, затем `git checkout -B <ветка> origin/<база>`. Git — простыми отдельными командами, без `cd` и цепочек с `&&`.
 2. Правила `.claude/rules/commands.md` и `lua-mod.md` подгрузятся, когда прочитаешь файл кода; если их нет в контексте — прочитай явно.
 3. План: `node .claude/scripts/md-section.mjs docs/phases/phase-N-plan.md --outline --depth 2`, затем только свою задачу, общие ограничения фазы и то, на что задача ссылается. ADR-0001 целиком не читать — только раздел по ссылке (`md-section.mjs docs/adr/0001-baseline-architecture.md "<раздел>"`).
-4. Факт Factorio API, которого нет в плане, проверяй по документации версии `2.0.77` (`https://lua-api.factorio.com/2.0.77/…`), никогда по `/latest/`.
+4. Факт Factorio API, которого нет в плане, проверяй по документации версии `2.1.24` (`https://lua-api.factorio.com/2.1.24/…`), никогда по `/latest/`.
 
 ## Работа
 - TDD для чистой логики: падающий busted-тест → минимальный код → зелёный → рефактор. Код с Factorio API тестами не покрывается — опиши в отчёте, что именно должен проверить playtest.
